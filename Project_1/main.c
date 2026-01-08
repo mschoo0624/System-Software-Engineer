@@ -6,10 +6,11 @@
 #include <sys/types.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <ctype.h>
+#include <errno.h>
 
 #define MAX_INPUT 1024
 #define MAX_ARGS 100
-
 // ============================================
 // TODO 1: COMMAND PARSING
 // ============================================
@@ -25,14 +26,30 @@
 typedef struct {
     char *args[MAX_ARGS];
     char *input_file;    // for < redirection
-    char *output_file;   // for > redirection
+    char *output_file;   // for > or >> redirection
+    int output_append;   // 1 if >> used
     int background;      // 1 if & at end
 } Command;
 
-// Command* parse_command(char *input) {
-//     // TODO: Implement parsing logic
-// }
-
+// Helper Function. (stdin <) 
+void redirect_input(const char* filename){
+    // Return if filename is NULL.
+    if (!filename) return;
+    // Open the file for reading the inputs. 
+    int fd = open(filename, O_RDONLY, O_TRUNC, 0644);
+    if (fd == -1){
+        perror("open input");
+        exit(EXIT_FAILURE); // child should exit on failure
+    }
+    // Duplicate the file descriptor to stdin.
+    if (dup2(fd, STDIN_FILENO) == -1){
+        perror("dup2 input");
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+    // It replaces the current process image with a new program image.
+    close(fd);
+}
 // ============================================
 // TODO 2: PROCESS CREATION & EXECUTION
 // ============================================
@@ -59,20 +76,47 @@ typedef struct {
 // ============================================
 // TODO 3: INPUT/OUTPUT REDIRECTION
 // ============================================
-// Build functions to handle:
+// Functions to handle:
 //   - Input redirection: cmd < input.txt
 //   - Output redirection: cmd > output.txt
 //   - Append redirection: cmd >> output.txt
 //
 // Use open(), dup2(), and close() system calls
-// Function signature suggestion:
-// void redirect_input(const char *filename) {
-//     // TODO: Open file and redirect stdin
-// }
-//
-// void redirect_output(const char *filename) {
-//     // TODO: Open file and redirect stdout
-// }
+// These functions are intended to be called in the child process before execvp().
+
+// Redirect stdin from filename. On failure, prints an error and exits the child.
+void redirect_input(const char *filename) {
+    if (!filename) return;
+    int fd = open(filename, O_RDONLY);
+    if (fd < 0) {
+        perror("open input");
+        exit(EXIT_FAILURE); // child should exit on failure
+    }
+    if (dup2(fd, STDIN_FILENO) < 0) {
+        perror("dup2 input");
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+    close(fd);
+}
+
+// Redirect stdout to filename. If append != 0 use O_APPEND (>>), otherwise truncate (>).
+void redirect_output(const char *filename, int append) {
+    if (!filename) return;
+    int flags = O_WRONLY | O_CREAT;
+    flags |= append ? O_APPEND : O_TRUNC;
+    int fd = open(filename, flags, 0644);
+    if (fd < 0) {
+        perror("open output");
+        exit(EXIT_FAILURE);
+    }
+    if (dup2(fd, STDOUT_FILENO) < 0) {
+        perror("dup2 output");
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+    close(fd);
+}
 
 // ============================================
 // TODO 4: PIPE HANDLING

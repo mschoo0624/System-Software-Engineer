@@ -1,0 +1,79 @@
+# Comprehensive hard/edge-case tests for the mini-shell.
+# Run: ./main < test_commands.txt
+
+# --- Basic whitespace and trivial cases ---
+
+# Empty lines and leading/trailing spaces
+
+   ls    -l    /    
+
+# Tabs between args (some shells treat tabs as whitespace too)
+ls	-l	.
+
+# --- Special token adjacency and no-space cases ---
+# '>' and '>>' adjacent to words (no space)
+echo no-space>out_ns.txt
+echo no-space>>out_ns.txt
+
+# --- Missing filenames for redirection (syntax edge cases) ---
+# These tests check how the parser handles '>' or '>>' with no following token
+echo missing_filename >
+echo missing_append >>
+
+# --- Redirection to directory or forbidden location ---
+# Writing to a directory should fail (open error)
+echo to_directory > .
+# Writing to protected location should likely fail with permission denied
+echo try_root_write > /root/should_fail.txt
+
+# --- Invalid commands and error handling ---
+nonexistentcmd arg1 arg2
+
+# --- Very long argument lists ---
+# This creates a long command line to test capacity and reallocation
+echo long_args_start a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a
+
+# --- Quoted arguments (shell is not quote-aware in this simple demo) ---
+# Expect quotes to be treated as part of the argument token
+echo "hello world"
+echo 'hello world'
+
+# --- Pipes and combined redirections ---
+# Pipe with input redirection on left and output on right
+cat < in.txt | grep hello > out_pipe.txt
+
+# Single pipe supported: chain multiple pipes to test error handling
+ls | grep src | wc -l
+
+# Pipe with missing side
+ls |
+| wc -l
+
+# --- Background jobs, with and without redirection ---
+sleep 2 > sleep_out.txt &
+sleep 1 &
+echo after_starting_bg
+sleep 2 & echo after_bg_started
+
+# Ampersand in the middle (should mark background)
+ls & echo after_amp
+
+# --- Append behavior check ---
+echo first_line > appendtest.txt
+echo second_line >> appendtest.txt
+cat < appendtest.txt
+
+# --- Very long single token / long input line ---
+# Create one extremely long line (should test tokenizer buffer growth)
+echo LONGLINE_START 
+# Repeat many small tokens to make the line long
+echo x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x
+
+# --- Mixed weird spacing and special characters ---
+# Special characters without separation
+echo weird&chars
+# Ampersand attached to a token
+sleep 1&
+
+# --- Exit at the end ---
+exit
