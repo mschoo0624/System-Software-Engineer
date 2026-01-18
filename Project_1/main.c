@@ -132,11 +132,41 @@ int execute_command(Command *cmd) {
 //   5. Connect stdin of second process to pipe
 //
 // Function signature suggestion:
-// int execute_pipe(Command *cmd1, Command *cmd2) {
-//     int pipefd[2];
-//     // TODO: Create pipe, fork processes, execute both
-// }
+int execute_pipe(Command *cmd1, Command *cmd2) {
+    int pipefd[2];
+    // TODO: Create pipe, fork processes, execute both
+    if (pipe(pipefd) == -1) {
+        perror("pipe");
+        return -1;
+    }
 
+    pid_t pid1 = fork();
+    if (pid1 == 0) {
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[0]);
+        close(pipefd[1]);
+        // Execute first command
+        if (cmd1->input_file){
+            redirect_input(cmd1->input_file);
+        }
+    }
+
+    pid_t pid2 = fork();
+    if (pid2 == 0){
+        dup2(pipefd[0], STDIN_FILENO);
+        close(pipefd[1]);
+        close(pipefd[0]);
+        if (cmd2->output_append){
+            redirect_output(cmd2->output_file, cmd2->output_append);
+        }
+    }
+
+    close(pipefd[0]);
+    close(pipefd[1]);
+    waitpid(pid1, NULL, 0);
+    waitpid(pid2, NULL, 0);
+    return 0;
+}
 // ============================================
 // TODO 5: SIGNAL HANDLING
 // ============================================
