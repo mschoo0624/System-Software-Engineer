@@ -92,28 +92,24 @@ int execute_command(Command *cmd) {
         // TODO: Execute command with execvp()
         if (cmd->input_file){
             redirect_input(cmd->input_file);
-        } else if (cmd->output_file){
+        }
+        if (cmd->output_file){
             redirect_output(cmd->output_file, cmd->output_append);
         }
-        if (cmd-[0][0] == '/'){
-            // Absolute or relative path
-            if (execv(cmd->args[0], cmd->args) == -1) {
-                perror("execv");
-                exit(EXIT_FAILURE);
-            }
+        
+        if (strchr(cmd->args[0], '/')) {
+            execv(cmd->args[0], cmd->args);
+            perror("execv");
         } else {
-            // Search in PATH
-            if (execvp(cmd->args[0], cmd->args) == -1) {
-                perror("execvp");
-                exit(EXIT_FAILURE);
-            }
+            execvp(cmd->args[0], cmd->args);
+            perror("execvp");
         }
+        
     } else if (pid > 0) {
         // Parent process
         // TODO: Wait for child if not background
         if (!cmd->background) {
-            int status;
-            waitpid(pid, &status, 0);
+            waitpid(pid, NULL, 0);
         }
     } else {
         // TODO: Handle fork error
@@ -122,7 +118,6 @@ int execute_command(Command *cmd) {
     }
     return 0;
 }
-
 
 // ============================================
 // TODO 4: PIPE HANDLING
