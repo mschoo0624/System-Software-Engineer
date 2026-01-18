@@ -36,20 +36,45 @@ void redirect_input(const char* filename){
     // Return if filename is NULL.
     if (!filename) return;
     // Open the file for reading the inputs. 
-    int fd = open(filename, O_RDONLY, O_TRUNC, 0644);
+    int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd == -1){
         perror("open input");
         exit(EXIT_FAILURE); // child should exit on failure
+        return 1;
     }
     // Duplicate the file descriptor to stdin.
     if (dup2(fd, STDIN_FILENO) == -1){
-        perror("dup2 input");
+        perror("dup1 input");
         close(fd);
         exit(EXIT_FAILURE);
     }
     // It replaces the current process image with a new program image.
     close(fd);
 }
+
+// Helper Function. (stdout > or >>)
+void redirect_output(const char* filename, int append){
+    // Returning if filename is NULL;
+    if (!filename) return;
+    // Open the file for writing the outputs.
+    // Using the TRUNC flag to truncate the file if it already exists(>). and APPEND flag to append the data to the file(>>).
+    int flag = O_WRONLY | O_CREAT;
+    flag |= append ? O_APPEND : O_TRUNC;
+    int fd = open(filename, flag, 0644);
+    if (fd == -1){
+        perror("open output");
+        exit(EXIT_FAILURE); // child should exit on failure
+        return 1;
+    }
+
+    if (dup2(fd, STDOUT_FILENO) == -1){
+        perror("dup2 output");
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+    close(fd);
+}
+
 // ============================================
 // TODO 2: PROCESS CREATION & EXECUTION
 // ============================================
@@ -59,64 +84,45 @@ void redirect_input(const char* filename){
 //   - Handle errors if command not found
 //
 // Function signature suggestion:
-// int execute_command(Command *cmd) {
-//     pid_t pid = fork();
-//     if (pid == 0) {
-//         // Child process
-//         // TODO: Handle input/output redirection
-//         // TODO: Execute command with execvp()
-//     } else if (pid > 0) {
-//         // Parent process
-//         // TODO: Wait for child if not background
-//     } else {
-//         // TODO: Handle fork error
-//     }
-// }
-
-// ============================================
-// TODO 3: INPUT/OUTPUT REDIRECTION
-// ============================================
-// Functions to handle:
-//   - Input redirection: cmd < input.txt
-//   - Output redirection: cmd > output.txt
-//   - Append redirection: cmd >> output.txt
-//
-// Use open(), dup2(), and close() system calls
-// These functions are intended to be called in the child process before execvp().
-
-// Redirect stdin from filename. On failure, prints an error and exits the child.
-void redirect_input(const char *filename) {
-    if (!filename) return;
-    int fd = open(filename, O_RDONLY);
-    if (fd < 0) {
-        perror("open input");
-        exit(EXIT_FAILURE); // child should exit on failure
+int execute_command(Command *cmd) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Child process
+        // TODO: Handle input/output redirection
+        // TODO: Execute command with execvp()
+        if (cmd->input_file){
+            redirect_input(cmd->input_file);
+        } else if (cmd->output_file){
+            redirect_output(cmd->output_file, cmd->output_append);
+        }
+        if (cmd-[0][0] == '/'){
+            // Absolute or relative path
+            if (execv(cmd->args[0], cmd->args) == -1) {
+                perror("execv");
+                exit(EXIT_FAILURE);
+            }
+        } else {
+            // Search in PATH
+            if (execvp(cmd->args[0], cmd->args) == -1) {
+                perror("execvp");
+                exit(EXIT_FAILURE);
+            }
+        }
+    } else if (pid > 0) {
+        // Parent process
+        // TODO: Wait for child if not background
+        if (!cmd->background) {
+            int status;
+            waitpid(pid, &status, 0);
+        }
+    } else {
+        // TODO: Handle fork error
+        perror("fork");
+        return -1;
     }
-    if (dup2(fd, STDIN_FILENO) < 0) {
-        perror("dup2 input");
-        close(fd);
-        exit(EXIT_FAILURE);
-    }
-    close(fd);
+    return 0;
 }
 
-// Redirect stdout to filename. If append != 0 use O_APPEND (>>), otherwise truncate (>).
-void redirect_output(const char *filename, int append) {
-    if (!filename) return;
-    int flags = O_WRONLY | O_CREAT;
-    flags |= append ? O_APPEND : O_TRUNC;
-    int fd = open(filename, flags, 0644);
-    if (fd < 0) {
-        perror("open output");
-        exit(EXIT_FAILURE);
-    }
-    if (dup2(fd, STDOUT_FILENO) < 0) {
-        perror("dup2 output");
-        close(fd);
-        exit(EXIT_FAILURE);
-    }
-    close(fd);
-}
 
 // ============================================
 // TODO 4: PIPE HANDLING
@@ -224,17 +230,3 @@ int main() {
     
     return 0;
 }
-
-// ============================================
-// IMPLEMENTATION CHECKLIST
-// ============================================
-// [ ] 1. Command parsing function
-// [ ] 2. Process creation and execution (fork/exec)
-// [ ] 3. Input/Output redirection (< and >)
-// [ ] 4. Pipe handling (|)
-// [ ] 5. Signal handlers (SIGINT, SIGCHLD)
-// [ ] 6. Job control (background processes)
-// [ ] 7. Built-in commands (cd, exit, pwd, etc.)
-// [ ] 8. Main shell loop refinement
-// [ ] 9. Error handling throughout
-// [ ] 10. Testing with various commands
