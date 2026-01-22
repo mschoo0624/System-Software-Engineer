@@ -73,9 +73,97 @@ void redirect_output(const char* filename, int append){
     close(fd);
 }
 
-// buidling a Parse Command Function.
+// buidling a Parse Command Function.   
 Command* parse_command(const char* input) {
-    
+    // Creating the Command struct pointer.
+    Command *cmd = malloc(sizeof(Command));
+
+    if (!cmd) return NULL;
+
+    // Initializing the Command struct members.
+    memset(cmd, 0, sizeof(Command));
+
+    char *token;
+    char *copied_line = strdup(input); // allocates sufficient memory for a copy of the string str 
+
+    if (!copied_line) {
+        perror("copied line.");
+        free(cmd);
+        return NULL;
+    }
+
+    int track = -1; // to track the arguments index.
+
+    // Tokenizing the input string based on spaces.
+    token = strtok(copied_line, " ");
+
+    while (token != NULL) {
+        if (strcmp(token, "<") == 0){
+            token = strtok(NULL, " ");
+            cmd->input_file = strdup(token);
+        } else if (strcmp(token, ">") == 0) {
+            token = strtok(NULL, " ");
+            cmd->output_file = strdup(token);
+            cmd->output_append = 0;
+        } else if (strcmp(token, ">>") == 0) {
+            token = strtok(NULL, " ");
+            cmd->output_file = strdup(token);
+            cmd->output_append = 1;
+        } else if (strcmp(token, "&") == 0) {
+            cmd->background = 1;
+        } else if (strcmp(token, ' ')){
+            track++;
+            cmd->args[track] = strdup(token);
+        }
+        token = strtok(NULL, " ");
+    }
+
+    cmd->args[track + 1] = NULL;
+    free(copied_line);
+    return cmd;
+}
+
+int is_builtin(const char *cmd) {
+    if (!cmd) return 0;
+
+    return strcmp(cmd, "cd") == 0 ||
+           strcmp(cmd, "exit") == 0 ||
+           strcmp(cmd, "pwd") == 0 ||
+           strcmp(cmd, "echo") == 0;
+}
+
+int execute_builtin(Command *cmd) {
+    if (strcmp(cmd->args[0], "cd") == 0) {
+        if (!cmd->args[1]) {
+            fprintf(stderr, "cd: missing argument\n");
+        } else if (chdir(cmd->args[1]) != 0) {
+            perror("cd");
+        }
+        return 1;
+    }
+
+    if (strcmp(cmd->args[0], "exit") == 0) {
+        exit(0);
+    }
+
+    if (strcmp(cmd->args[0], "pwd") == 0) {
+        char cwd[1024];
+        if (getcwd(cwd, sizeof(cwd)))
+            printf("%s\n", cwd);
+        else
+            perror("pwd");
+        return 1;
+    }
+
+    if (strcmp(cmd->args[0], "echo") == 0) {
+        for (int i = 1; cmd->args[i]; i++) {
+            printf("%s ", cmd->args[i]);
+        }
+        printf("\n");
+        return 1;
+    }
+
+    return 0;
 }
 
 
@@ -136,41 +224,66 @@ int execute_command(Command *cmd) {
 //   5. Connect stdin of second process to pipe
 //
 // Function signature suggestion:
-int execute_pipe(Command *cmd1, Command *cmd2) {
-    int pipefd[2];
-    // TODO: Create pipe, fork processes, execute both
-    if (pipe(pipefd) == -1) {
-        perror("pipe");
-        return -1;
+int execute_pipe(char *input) {
+    char *track = NULL;
+    
+    char *pipeline = strchr(input, '|');
+    char *or = strstr(input, "||");
+
+    if ((track = or) != NULL) {
+        *track = '\0';
+        Command *cmd1 = parse_command(input);
+        int status = execute_command(cmd1);
+
+        if (status != 0) {
+            execute_command(parse_command(track + 2));
+        }
+            return 0;   
     }
 
-    pid_t pid1 = fork();
-    if (pid1 == 0) {
-        dup2(pipefd[1], STDOUT_FILENO);
+    if ((track = pipeline) != NULL)  {
+        *track = '\0';
+        char *cmd1 = input;
+        char *cmd2 = track + 1;  // Move past the "|"
+        
+        // Create a pipe.
+        int pipefd[2];
+
+        if (pipe(pipefd) == -1){
+            perror("pipe");
+            return -1;
+        }
+
+        pid_t pid1 = fork();
+        if (pid1 == 0){
+            dup2(pipefd[1], STDOUT_FILENO);\
+            close(pipefd[0]);
+            close(pipefd[1]);
+            execute_command(parse_command(cmd1));
+            exit(0);
+        }
+
+        pid_t pid2 = fork();
+        if (pid2 == 0){
+            dup2(pipefd[1], STDOUT_FILENO);
+            close(pipefd[0]);
+            close(pipefd[1]);
+            execute_command(parse_command(cmd2));
+            exit(0);
+        }
+
+        // Parent Process. 
         close(pipefd[0]);
         close(pipefd[1]);
-        // Execute first command
-        if (cmd1->input_file){
-            redirect_input(cmd1->input_file);
-        }
+        waitpid(pid1, NULL, 0);
+        waitpid(pid2, NULL, 0);
+        return 0;
     }
 
-    pid_t pid2 = fork();
-    if (pid2 == 0){
-        dup2(pipefd[0], STDIN_FILENO);
-        close(pipefd[1]);
-        close(pipefd[0]);
-        if (cmd2->output_append){
-            redirect_output(cmd2->output_file, cmd2->output_append);
-        }
-    }
-
-    close(pipefd[0]);
-    close(pipefd[1]);
-    waitpid(pid1, NULL, 0);
-    waitpid(pid2, NULL, 0);
-    return 0;
+    Command *cmd = parse_command(input);
+    return execute_command(cmd);
 }
+
 // ============================================
 // TODO 5: SIGNAL HANDLING
 // ============================================
@@ -243,7 +356,7 @@ int main() {
         if (strlen(input) == 0) continue;
         
         // TODO 1: Parse command
-        // Command *cmd = parse_command(input);
+        Command *cmd = parse_command(input);
         
         // TODO 7: Check if built-in command
         // if (is_builtin(cmd->args[0])) {
