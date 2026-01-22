@@ -40,7 +40,6 @@ void redirect_input(const char* filename){
     if (fd == -1){
         perror("open input");
         exit(EXIT_FAILURE); // child should exit on failure
-        return 1;
     }
     // Duplicate the file descriptor to stdin.
     if (dup2(fd, STDIN_FILENO) == -1){
@@ -64,7 +63,6 @@ void redirect_output(const char* filename, int append){
     if (fd == -1){
         perror("open output");
         exit(EXIT_FAILURE); // child should exit on failure
-        return 1;
     }
 
     if (dup2(fd, STDOUT_FILENO) == -1){
@@ -74,6 +72,12 @@ void redirect_output(const char* filename, int append){
     }
     close(fd);
 }
+
+// buidling a Parse Command Function.
+Command* parse_command(const char* input) {
+    
+}
+
 
 // ============================================
 // TODO 2: PROCESS CREATION & EXECUTION
@@ -96,7 +100,7 @@ int execute_command(Command *cmd) {
         if (cmd->output_file){
             redirect_output(cmd->output_file, cmd->output_append);
         }
-        
+        // Checking the absolute or relative path.
         if (strchr(cmd->args[0], '/')) {
             execv(cmd->args[0], cmd->args);
             perror("execv");
@@ -230,8 +234,7 @@ int main() {
         
         // Read user input
         if (fgets(input, MAX_INPUT, stdin) == NULL) {
-            perror("fgets");
-            continue;
+            break;  // Exit on EOF
         }
         
         // Remove trailing newline
