@@ -36,7 +36,7 @@ void redirect_input(const char* filename){
     // Return if filename is NULL.
     if (!filename) return;
     // Open the file for reading the inputs. 
-    int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    int fd = open(filename, O_RDONLY, 0644);
     if (fd == -1){
         perror("open input");
         exit(EXIT_FAILURE); // child should exit on failure
@@ -57,9 +57,7 @@ void redirect_output(const char* filename, int append){
     if (!filename) return;
     // Open the file for writing the outputs.
     // Using the TRUNC flag to truncate the file if it already exists(>). and APPEND flag to append the data to the file(>>).
-    int flag = O_WRONLY | O_CREAT;
-    flag |= append ? O_APPEND : O_TRUNC;
-    int fd = open(filename, flag, 0644);
+    int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd == -1){
         perror("open output");
         exit(EXIT_FAILURE); // child should exit on failure
@@ -111,7 +109,7 @@ Command* parse_command(const char* input) {
             cmd->output_append = 1;
         } else if (strcmp(token, "&") == 0) {
             cmd->background = 1;
-        } else if (strcmp(token, ' ')){
+        } else {
             track++;
             cmd->args[track] = strdup(token);
         }
@@ -147,7 +145,7 @@ int execute_builtin(Command *cmd) {
     }
 
     if (strcmp(cmd->args[0], "pwd") == 0) {
-        char cwd[1024];
+        char cwd[1024]; //  Current Working Directory buffer should be 1024bytes.  
         if (getcwd(cwd, sizeof(cwd)))
             printf("%s\n", cwd);
         else
@@ -165,7 +163,6 @@ int execute_builtin(Command *cmd) {
 
     return 0;
 }
-
 
 // ============================================
 // TODO 2: PROCESS CREATION & EXECUTION
@@ -208,7 +205,7 @@ int execute_command(Command *cmd) {
         perror("fork");
         return -1;
     }
-    return 0;
+    return pid;
 }
 
 // ============================================
@@ -228,17 +225,25 @@ int execute_pipe(char *input) {
     char *track = NULL;
     
     char *pipeline = strchr(input, '|');
-    char *or = strstr(input, "||");
+    char *logicalOr = strstr(input, "||");
 
-    if ((track = or) != NULL) {
+    if ((track = logicalOr) != NULL) {
         *track = '\0';
         Command *cmd1 = parse_command(input);
-        int status = execute_command(cmd1);
-
-        if (status != 0) {
-            execute_command(parse_command(track + 2));
+        pid_t pid1 = execute_command(cmd1);
+        int status;
+        waitpid(pid1, &status, 0);
+        
+        if (WEXITSTATUS(status) != 0) {
+            Command *cmd2 = parse_command(track + 2); // Move past the "||"
+            pid_t pid2 = fork();
+            if (pid2 == 0) {
+                execvp(cmd2->args[0], cmd2->args);
+                exit(0);
+            }
+            waitpid(pid2, NULL, 0);
         }
-            return 0;   
+        return 0;   
     }
 
     if ((track = pipeline) != NULL)  {
@@ -256,19 +261,21 @@ int execute_pipe(char *input) {
 
         pid_t pid1 = fork();
         if (pid1 == 0){
-            dup2(pipefd[1], STDOUT_FILENO);\
+            dup2(pipefd[1], STDOUT_FILENO);
             close(pipefd[0]);
             close(pipefd[1]);
-            execute_command(parse_command(cmd1));
+            Command *first = parse_command(cmd1);
+            execvp(first->args[0], first->args);
             exit(0);
         }
 
         pid_t pid2 = fork();
         if (pid2 == 0){
-            dup2(pipefd[1], STDOUT_FILENO);
+            dup2(pipefd[0], STDIN_FILENO);
             close(pipefd[0]);
             close(pipefd[1]);
-            execute_command(parse_command(cmd2));
+            Command *second = parse_command(cmd2);
+            execvp(second->args[0], second->args);
             exit(0);
         }
 
@@ -281,7 +288,10 @@ int execute_pipe(char *input) {
     }
 
     Command *cmd = parse_command(input);
-    return execute_command(cmd);
+    
+    int status;
+    waitpid(execute_command(cmd), &status, 0);
+    return WEXITSTATUS(status) ? WEXITSTATUS(status) : 1;
 }
 
 // ============================================
@@ -292,24 +302,19 @@ int execute_pipe(char *input) {
 //   - SIGCHLD: Handle background process termination
 //
 // Function signature suggestion:
-// void signal_handler(int sig) {
-//     // TODO: Handle SIGINT or SIGCHLD
-// }
-
-// ============================================
-// TODO 6: JOB CONTROL (Background Processes)
-// ============================================
-// Build structures and functions to:
-//   - Track background processes
-//   - Display running jobs with: jobs command
-//   - Bring jobs to foreground: fg %1
-//
-// Suggested data structure:
-// typedef struct {
-//     pid_t pid;
-//     char *command;
-//     int status;  // 1=running, 0=stopped
-// } Job;
+void signal_handler(int sig) {
+    // TODO: Handle SIGINT or SIGCHLD
+    if (sig == SIGINT) {
+        printf("\n");
+    } else if (sig == SIGCHLD) {
+        int status;
+        pid_t pid;
+        // WNOHANG = non-blocking (don't wait, return immediately).
+        while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+            printf("Background process %d terminated.\n", pid);
+        }
+    }
+}
 
 // ============================================
 // TODO 7: BUILT-IN COMMANDS
@@ -338,8 +343,8 @@ int main() {
     char input[MAX_INPUT];
     
     // TODO 5: Register signal handlers
-    // signal(SIGINT, signal_handler);
-    // signal(SIGCHLD, signal_handler);
+    signal(SIGINT, signal_handler);
+    signal(SIGCHLD, signal_handler);
     
     while (1) {
         printf("myshell> ");
@@ -358,15 +363,33 @@ int main() {
         // TODO 1: Parse command
         Command *cmd = parse_command(input);
         
-        // TODO 7: Check if built-in command
-        // if (is_builtin(cmd->args[0])) {
-        //     execute_builtin(cmd);
-        // } else {
-        //     // TODO 2: Execute external command
-        //     // execute_command(cmd);
-        // }
+        if (!cmd) {
+            fprintf(stderr, "parse returned NULL\n");
+            continue;
+        }
         
-        printf("Command: %s\n", input);  // Placeholder
+        fprintf(stderr, "DEBUG: cmd->args[0] = '%s'\n", cmd->args[0] ? cmd->args[0] : "NULL");
+        
+        if (!cmd->args[0]) {
+            fprintf(stderr, "args[0] is NULL\n");
+            continue;
+        }
+        
+        // TODO 7: Check if built-in command
+        if (is_builtin(cmd->args[0])) {
+            execute_builtin(cmd);
+        } else {
+            // TODO 2: Execute external command
+            execute_pipe(input);
+        }
+        
+        // Free allocated memory
+        for (int i = 0; cmd->args[i]; i++) {
+            free(cmd->args[i]);
+        }
+        if (cmd->input_file) free(cmd->input_file);
+        if (cmd->output_file) free(cmd->output_file);
+        free(cmd);
     }
     
     return 0;
