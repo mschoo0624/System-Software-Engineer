@@ -7,7 +7,7 @@
 	.globl	main
 	.type	main, @function
 main:
-.LFB0:
+.LFB6:
 	.cfi_startproc
 	endbr64
 	pushq	%rbp
@@ -23,7 +23,7 @@ main:
 	.cfi_def_cfa 7, 8
 	ret
 	.cfi_endproc
-.LFE0:
+.LFE6:
 	.size	main, .-main
 	.ident	"GCC: (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0"
 	.section	.note.GNU-stack,"",@progbits

@@ -1,0 +1,69 @@
+/*
+     * TODO: Function-level implementation notes (no code)
+     *
+     * 1) config_load(...)
+     *    - Responsibilities: parse CLI args and optional config file; populate
+     *      runtime struct with listen address/port, upstream list, cache limits,
+     *      timeouts, EDNS size, log level, and operational flags.
+     *    - Validate values and prepare derived settings (e.g., effective timeout).
+     *
+     * 2) setup_listen_socket(...)
+     *    - Responsibilities: create UDP socket, set `SO_REUSEADDR`, optionally
+     *      mark non-blocking, bind to configured address/port, return fd.
+     *    - Handle errors and return useful diagnostics.
+     *
+     * 3) read_dns_header(const uint8_t *buf, size_t len, struct dns_flag *h)
+     *    - Responsibilities: validate buffer has >=12 bytes, parse 12-byte header,
+     *      convert network-to-host for counts/ID/flags, and sanity-check counts.
+     *    - Return success/failure and parsed header structure.
+     *
+     * 4) decode_name(const uint8_t *buf, size_t buf_len, size_t offset,
+     *                char *out, size_t out_len, size_t *consumed)
+     *    - Responsibilities: decode a domain name starting at `offset`, following
+     *      compression pointers as needed; prevent infinite loops by tracking
+     *      visited offsets or depth; write human-readable name into `out`.
+     *    - On success, set `consumed` to number of bytes advanced from `offset`.
+     *
+     * 5) parse_question_section(...)
+     *    - Responsibilities: for each question, call `decode_name`, then read
+     *      QTYPE and QCLASS with bounds checks; accumulate questions into a list.
+     *
+     * 6) parse_resource_record(...)
+     *    - Responsibilities: decode NAME, read TYPE, CLASS, TTL, RDLENGTH (network
+     *      order), verify RDLENGTH fits buffer, and parse RDATA according to TYPE
+     *      (e.g., A=4 bytes, AAAA=16, CNAME/NS=domain name). Return structured RR.
+     *
+     * 7) build_response_packet(...)
+     *    - Responsibilities: construct DNS response in a buffer: header, question(s),
+     *      and answer/additional sections. Maintain name offset map for compression.
+     *    - Ensure packet size respects configured UDP/EDNS limit; if too large,
+     *      set TC bit and allow caller to fallback to TCP.
+     *
+     * 8) cache_lookup/insert APIs
+     *    - Responsibilities: provide fast lookup by (qname,qtype,qclass), check TTL
+     *      expiration on lookup, and insert responses with original TTL and timestamp.
+     *    - Use an eviction policy (LRU recommended) and consider negative caching.
+     *
+     * 9) forward_to_upstream(...)
+     *    - Responsibilities: send query to upstream via UDP, wait with timeout,
+     *      retry N times, return raw response or indicate truncation/timeout.
+     *    - If response has TC, provide mechanism for TCP retry.
+     *
+     * 10) tcp_query_fallback(...)
+     *    - Responsibilities: perform DNS-over-TCP exchange: open TCP socket to upstream,
+     *      send length-prefixed query, read length-prefixed response, and return data.
+     *
+     * 11) main_event_loop(...)
+     *    - Responsibilities: run select()/poll() loop, handle readable sockets,
+     *      call parsing and cache APIs, decide to serve from cache or forward,
+     *      and send replies via sendto(). Also manage time-based cache expiration.
+     *
+     * 12) logging_init and signal handlers
+     *    - Responsibilities: initialize logging subsystem, handle SIGINT/SIGTERM
+     *      to perform graceful shutdown, flush state, and close sockets.
+     *
+     * 13) tests: unit_test_parsing(), integration_test_query_flow()
+     *    - Responsibilities: provide deterministic unit tests for parsing/serialization
+     *      utilities using stored packet fixtures, and integration tests exercising
+     *      the full request→upstream→cache→response flow (use `dig` in tests).
+     */
