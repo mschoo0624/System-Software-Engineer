@@ -18,13 +18,14 @@ int read_u8(const uint8_t *buf, size_t len, size_t offset, uint8_t *out) {
     return 0; // Return 0 if succecced. 
 }
 
-int read_u16(const uint8_t *buf, size_t len, size_t offset, uint16_t *out) {
+int read_u16(const uint8_t *buf, size_t len, size_t *offset, uint16_t *out) {
     if (offset + 2 > len) return -1;
 
     uint16_t net_val; // 2 bytes for network byte order value.
     // Copied the source buffer to net_val with size of 2 bytes.
-    memcpy(&net_val, buf + offset, sizeof(uint16_t));
+    memcpy(&net_val, buf + *offset, sizeof(uint16_t));
     *out = ntohs(net_val);
+    *offset += 2; // Move the offset forward by 2 bytes after reading.
     return 0;
 }
 

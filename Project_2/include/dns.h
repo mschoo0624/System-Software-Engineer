@@ -13,6 +13,13 @@
 #define DNS_MAX_PACKET_LEN 512
 #define DNS_EDNS_MAX_LEN 4096
 
+/* Maximum sizes for various counts */
+#define DNS_MAX_QUESTIONS    10
+#define DNS_MAX_ANSWERS      200
+#define DNS_MAX_AUTHORITIES  100
+#define DNS_MAX_ADDITIONAL   100
+
+
 /* DNS Question Types (QTYPE) */
 #define QTYPE_A 1
 #define QTYPE_NS 2
