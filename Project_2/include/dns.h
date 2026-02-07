@@ -12,6 +12,7 @@
 #define DNS_MAX_NAME_LEN 255
 #define DNS_MAX_PACKET_LEN 512
 #define DNS_EDNS_MAX_LEN 4096
+#define DNS_MAX_LABEL_LEN 63
 
 /* Maximum sizes for various counts */
 #define DNS_MAX_QUESTIONS    10
