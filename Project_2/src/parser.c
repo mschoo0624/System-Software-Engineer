@@ -199,6 +199,11 @@ int parse_resource_record(const uint8_t *buf, size_t buf_len, size_t *offset,
     pos += name_consumed; // Advance position by consumed bytes.
 
     // Read TYPE.
-    
+    uint16_t type = read_u16(buf, buf_len, &pos, &rr->type);
+    if (type < 0) return -1; // Read TYPE.
+    printf("Debugging: Resource Record Type: %u\n", rr->type);
+    pos += name_consumed;
+
+    // Read CLASS.
     return 0;  /* 0 = success, -1 = error */
 }
