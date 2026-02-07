@@ -87,7 +87,7 @@ int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
         // end of name check like null byte.
         if (len_byte == 0){         
             if (!jumped) {
-                *consumed += 1; // Account for null byte if no jump occurred
+                (*consumed) += 1; // Account for null byte if no jump occurred
             }
             break;
         }
@@ -108,7 +108,7 @@ int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
             pos = pointer_offset; // Jump to the pointer offset.
             jump_offset += 1; // Count the jump to prevent loops.
 
-            if (jump_offset > 16) return -1;
+            if (++jump_offset > 16) return -1;
             continue;
         }
         // Checking the reversed patterns.
@@ -135,7 +135,7 @@ int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
 
             pos += 1 + label_len; // Advance position in buffer.
             if (!jumped) {
-                *consumed += 1 + label_len; // Account for label length byte and label if no jump occurred
+                (*consumed) += 1 + label_len; // Account for label length byte and label if no jump occurred
             }
         }
     }
@@ -172,7 +172,6 @@ int parse_question_section(const uint8_t *buf, size_t buf_len, size_t *offset,
         // Handling QCLASS. It tells the class of the query.
         if (read_u16(buf, buf_len, &pos, &questions[i].qclass) < 0) return -1; // Read QCLASS.
     }
-
     return 0;  /* 0 = success, -1 = error */
 }
 
@@ -192,18 +191,57 @@ int parse_resource_record(const uint8_t *buf, size_t buf_len, size_t *offset,
     size_t name_consumed = 0; // Bytes consumed for the name.
 
     // Handling the NAME.
-    if (decode_name(buf, buf_len, pos, rr->name, DNS_MAX_NAME_LEN, &name_consumed) < 0) return -1; // Decode domain name.
-    strncpy(rr->name, DNS_MAX_NAME_LEN, sizeof(rr->name) - 1); // Copy decoded name to resource record structure.
+    if (decode_name(buf, buf_len, pos, rr->name, sizeof(rr->name), &name_consumed) < 0) return -1; // Decode domain name.
     rr->name[sizeof((rr->name) - 1)] = '\0';
     printf("Debugging: Resource Record Name: %s, Name Consumed: %zu\n", rr->name, name_consumed);
     pos += name_consumed; // Advance position by consumed bytes.
 
     // Read TYPE.
-    uint16_t type = read_u16(buf, buf_len, &pos, &rr->type);
-    if (type < 0) return -1; // Read TYPE.
+    if (read_u16(buf, buf_len, &pos, &rr->type) < 0) return -1; // Read TYPE.
     printf("Debugging: Resource Record Type: %u\n", rr->type);
-    pos += name_consumed;
+    // pos += name_consumed;
 
     // Read CLASS.
+    if (read_u16(buf, buf_len, &pos, &rr->class) < 0) return -1; // Read CLASS.
+    printf("Debugging: Resource Record Class: %u\n", rr->class);
+    // pos += name_consumed;
+
+    // Read TTL.
+    if ( read_u32(buf, buf_len, &pos, &rr->ttl) < 0) return -1;
+    printf("Debugging: Resource Record TTL: %u\n", rr->ttl);
+    // pos += name_consumed;
+
+    // Read RDLENGTH.
+    if (read_u16(buf, buf_len, &pos, &rr->rdata.len) < 0) return -1;
+    printf("Debugging: Resource Record RDL  ENGTH: %u\n", rr->rdata.len);
+    // pos += name_consumed;
+
+    // Validate RDLENGTH.
+    if (rr->rdata.len > buf_len) return -1; // RDLENGTH exceeds buffer length.
+    switch(rr->type) {
+        case QTYPE_A:
+            if (rr->rdata.len != 4) return -1;
+            break;
+        case QTYPE_AAAA:
+            if (rr->rdata.len != 16) return -1;
+            break;
+        case QTYPE_CNAME:
+            if (rr->rdata.len < 2) return -1;
+            break;
+        case QTYPE_MX:
+            if (rr->rdata.len < 3) return -1;
+            break;
+        default:
+            // Optional: Handle unknown types or just copy the raw data
+            break;
+    }   
+
+    rr->rdata.data = malloc(rr->rdata.len);
+    if (!rr->rdata.data) return -1;
+
+    memcpy(rr->rdata.data, buf + pos, rr->rdata.len);
+    pos += rr->rdata.len;
+
+    *offset = pos;
     return 0;  /* 0 = success, -1 = error */
 }
