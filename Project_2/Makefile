@@ -37,3 +37,6 @@ valgrind: debug
 
 test:
 	@echo "No tests yet. Add unit tests under tests/ and implement this target."
+
+test_code:
+	gcc src/parser.c src/util.c src/test_dns.c -I./include -o dns_test

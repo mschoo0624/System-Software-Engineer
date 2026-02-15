@@ -2,6 +2,8 @@
  * DNS packet parsing implementation
  */
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "../include/parser.h"
 
@@ -64,11 +66,12 @@ int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
     6.Read next 3 bytes → "com"
     7.Read next byte → 00
     8.Stop
+    total bytes consumed = 1 + 3 + 1 + 7 + 1 + 3 + 1 = 17 bytes
 
     Length Byte = 0-63 : indicates the length of the next label.
     DNS reverses the top two bits of the length byte for the compression pointer.
     00xxxxxx → normal label
-    11xxxxxx → compression pointer
+    11xxxxxx → compression pointer (eg... mail.google.com with pointer to google.com)
     so the max length of a label is 63 bytes. "0X00111111" = 63
     */
     size_t pos = offset; // Current position in buffer.
@@ -80,29 +83,33 @@ int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
     if (!consumed || !out || !buf) return -1; // Validate pointers.
 
     while (1) {
-        uint8_t len_byte; // 2 bytes for length byte.
+        uint8_t len_byte = buf[pos]; // 2 bytes for length byte.
+        size_t len_header = len_byte;
+        // Debugging printout statements.
+        printf("Debugging: Length byte at position %zu: 0x%02X\n", pos, len_byte); 
+        printf("Debugging: Length header value: %zu\n", len_header);
+        
         if (pos + 1 > buf_len) return -1; // Bounds check.
 
-        if (read_u8(buf, buf_len, pos, &len_byte) < 0) return -1; // Read length byte.         
+        if (read_u8(buf, buf_len, &pos, &len_byte) < 0) return -1; // Read length byte.       
         // end of name check like null byte.
-        if (len_byte == 0){         
+        if (len_byte == 0){   
+            pos++; // Move past the null byte.      
             if (!jumped) {
-                (*consumed) += 1; // Account for null byte if no jump occurred
+                *consumed = pos-offset; // Account for null byte if no jump occurred
             }
             break;
         }
-        // Compressiong pointer check. 11xxxxxx → compression pointer
+        // Compressiong pointer check. 11xxxxxx → 
         if ((len_byte & 0XC0) == 0XC0) {
-            uint8_t next_byte; //  Next byte of the pointer.
-            uint16_t pointer_offset; // 14 bits for pointer offset.
+            printf("Debugging: Inside the Compression Pointer Check\n");
+            uint8_t next_byte = buf[pos+1]; //  Next byte of the pointer
             printf("Debugging: Compression pointer detected at position %zu\n", pos);
-            printf( "Length byte: 0x%02X\n", len_byte);
-            printf( "Next byte: 0x%02X\n", buf[pos + 1]);
-            if (read_u8(buf, buf_len, pos + 1, &next_byte) < 0) return -1; // Read next byte for pointer calculation.
+            if (read_u8(buf, buf_len, &pos + 1, &next_byte) < 0) return -1; // Read next byte for pointer calculation.
 
-            pointer_offset = ((len_byte & 0X3F) << 8) | next_byte; // Calculate pointer offset 14bits.
+            uint16_t pointer_offset = ((len_byte & 0X3F) << 8) | next_byte; // Calculate pointer offset 14bits.
             if (pointer_offset >= buf_len) return -1; // Validate pointer offset.
-            if (!jumped) (*consumed) += 2; // Since compression pointer skips the jump bytes so count them. 
+            if (!jumped) *consumed = (pos - offset) + 2; // Since compression pointer skips the jump bytes so count them. 
             
             jumped = 1; // Set jumped flag to true.
             pos = pointer_offset; // Jump to the pointer offset.
@@ -111,12 +118,11 @@ int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
             if (++jump_offset > 16) return -1;
             continue;
         }
-        // Checking the reversed patterns.
-        if ((len_byte & 0X3F) != 0X00) return -1; // Invalid length byte pattern
 
         // Normal label processing.
         if ((len_byte & 0XC0) == 0x00) {
-            size_t label_len = len_byte & 0X3F; // To extract the length of the label.
+            printf("Debugging: Inside the Normal Label Processing\n");
+            size_t label_len = len_byte; // To extract the length of the label.
             if (label_len == 0 || label_len > DNS_MAX_LABEL_LEN) return -1;
             printf("Debugging: The length of the label is %zu\n", label_len);
 
@@ -130,13 +136,15 @@ int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
             // Now copying the label to output. 
             for (size_t i = 0; i < label_len; i++){
                 if (out_pos >= out_len - 1) return -1; // Ensure space for null terminator.
-                out[out_pos++] = buf[pos+1+i]; // Copy label character to output.
+                out[out_pos++] = buf[pos+i]; // Copy label character to output.
             }
+            
+            out[out_pos] = '\0'; // Temporarily null-terminate for printf
 
-            pos += 1 + label_len; // Advance position in buffer.
-            if (!jumped) {
-                (*consumed) += 1 + label_len; // Account for label length byte and label if no jump occurred
-            }
+            pos += label_len; // Advance position in buffer.
+            if (!jumped) (*consumed) += pos - offset; // Account for label length byte and label if no jump occurred
+        } else {
+            return -1;
         }
     }
 
@@ -161,7 +169,7 @@ int parse_question_section(const uint8_t *buf, size_t buf_len, size_t *offset,
         
         // Handling the name domain QNAME.
         if (decode_name(buf, buf_len, pos, questions[i].qname, DNS_MAX_NAME_LEN, &name_consumed) < 0) return -1; // Decode domain name.
-        strncpy(questions[i].qname, DNS_MAX_NAME_LEN, sizeof(questions[i].qname) - 1); // Copy decoded name to question structure.
+        // *strncpy(questions[i].qname, DNS_MAX_NAME_LEN, sizeof(questions[i].qname) - 1); // Copy decoded name to question structure.
         questions[i].qname[sizeof(questions[i].qname) - 1] = '\0'; // Ensure null termination.
         pos += name_consumed; // Advance position by consumed bytes.
         

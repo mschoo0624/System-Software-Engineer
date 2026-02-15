@@ -9,9 +9,9 @@
 #include "dns.h"
 
 /* Safe buffer read functions - return 0 on success, -1 on bounds error */
-int read_u8(const uint8_t *buf, size_t len, size_t offset, uint8_t *out);
+int read_u8(const uint8_t *buf, size_t len, size_t *offset, uint8_t *out);
 int read_u16(const uint8_t *buf, size_t len, size_t *offset, uint16_t *out);
-int read_u32(const uint8_t *buf, size_t len, size_t offset, uint32_t *out);
+int read_u32(const uint8_t *buf, size_t len, size_t *offset, uint32_t *out);
 
 /* Parse DNS header from buffer */
 int parse_dns_header(const uint8_t *buf, size_t len, struct dns_header *hdr);
