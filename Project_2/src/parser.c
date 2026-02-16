@@ -29,9 +29,7 @@ int parse_dns_header(const uint8_t *buf, size_t len, struct dns_header *hdr) {
     //offset += 2;
     if (read_u16(buf, len, &offset, &hdr->flags) < 0) return -1;
     //offset += 2;
-    if (read_u16(buf, len, &offset, &hdr->qdcount) < 0) return -1;
-    //offset += 2;
-    if (read_u16(buf, len, &offset, &hdr->ancount) < 0) return -1;
+    if (read_u16(buf, len, &offset, &hdr->qdcount) < 0) return -1; //offset += 2; if (read_u16(buf, len, &offset, &hdr->ancount) < 0) return -1;
     //offset += 2;
     if (read_u16(buf, len, &offset, &hdr->nscount) < 0) return -1;
     //offset += 2;
@@ -94,7 +92,7 @@ int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
         if (len_byte == 0){   
             pos++; // Move past the null byte.      
             if (!jumped) {
-                *consumed = pos-offset; // Account for null byte if no jump occurred
+                *consumed = pos - offset; // Account for null byte if no jump occurred
             }
             break;
         }
@@ -104,21 +102,15 @@ int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
             uint8_t next_byte = buf[pos]; //  Next byte of the pointer
             printf("Debugging: The string of the next byte is 0X%02X.\n", next_byte);
             
-            uint16_t pointer_offset = ((len_byte & 0X3F) << 8) | next_byte; // Calculate pointer offset 14bits.
-            printf("Debugging: Calculated Pointer Offset: %u bits.\n", pointer_offset);
-
-            if (pointer_offset + 1 > buf_len) return -1; // Validate pointer offset.
-            printf("Debugging: Calculation is (pos: %zu + 2) - offset: %zu.\n", pos, offset);
-            if (!jumped) *consumed = (pos + 1) - offset; // Since compression pointer skips the jump bytes so count them. 
-            
+            if (!jumped) *consumed = (pos + 1) - offset; // Since compression pointer skips the jump bytes so count them.
+            uint16_t pointer_offset = ((len_byte & 0x3F) << 8) | next_byte; // Calculate pointer offset 14bits. 
             // Jump to the pointer offset.
+            pos = pointer_offset; // Jump to the pointer offset.jumped = 1; 
             jumped = 1; // Set jumped flag to true.
-            pos = pointer_offset; // Jump to the pointer offset.
-            jump_offset += 1; // Count the jump to prevent loops.
-            continue;
+            jump_offset++;
 
             if (jump_offset > 16) return -1;
-            continue;
+            continue; // Continue processing at the new position.
         }
 
         // Normal label processing.
@@ -163,17 +155,16 @@ int parse_question_section(const uint8_t *buf, size_t buf_len, size_t *offset,
     | QCLASS | 2 bytes  | Class (usually IN = 1)                     |
     */
     size_t pos = *offset; // Current position in buffer.
+
     for (size_t i = 0; i< qdcount; i++) {
         size_t name_consumed = 0; // Bytes consumed for the name.
         
         // Handling the name domain QNAME.
         if (decode_name(buf, buf_len, pos, questions[i].qname, DNS_MAX_NAME_LEN, &name_consumed) < 0) return -1; // Decode domain name.
-        // *strncpy(questions[i].qname, DNS_MAX_NAME_LEN, sizeof(questions[i].qname) - 1); // Copy decoded name to question structure.
         questions[i].qname[sizeof(questions[i].qname) - 1] = '\0'; // Ensure null termination.
         pos += name_consumed; // Advance position by consumed bytes.
         
         // Handling QTYPE. It tells the type of the records being requested.
-        // if (pos + 2 > buf_len) return -1; // Bounds check.
         if (read_u16(buf, buf_len, &pos, &questions[i].qtype) < 0 || pos + 2 > buf_len) return -1; // Read QTYPE.
 
         // Handling QCLASS. It tells the class of the query.
@@ -196,33 +187,38 @@ int parse_resource_record(const uint8_t *buf, size_t buf_len, size_t *offset,
     */
     size_t pos = *offset; // Current position in buffer.
     size_t name_consumed = 0; // Bytes consumed for the name.
+    printf("Debugging: Parse Resource Record current position: %zu.\n", pos);
 
     // Handling the NAME.
+    printf("Debugging: About to decode name at position %zu\n", pos);
     if (decode_name(buf, buf_len, pos, rr->name, sizeof(rr->name), &name_consumed) < 0) return -1;
     rr->name[sizeof(rr->name) - 1] = '\0';
     printf("Debugging: Resource Record Name: %s, Name Consumed: %zu\n", rr->name, name_consumed);
     
     pos += name_consumed; // Advance position by consumed bytes.
+    printf("Debugging: After decoding name, current position: %zu.\n", pos);
+    
+    if (buf[pos] == 0xC0) {
+        printf("WARNING: Found another pointer at %zu. Advancing manually.\n", pos);
+        pos += 2; // Manually skip the extra pointer
+    }
 
     // Read TYPE.
+    printf("DEBUG: Bytes at pos %zu are: %02X %02X\n", pos, buf[pos], buf[pos+1]);
     if (read_u16(buf, buf_len, &pos, &rr->type) < 0) return -1; // Read TYPE.
-    printf("Debugging: Resource Record Type: %u\n", rr->type);
-    // pos += name_consumed;
+    printf("Debugging: Resource Record Type: %u and next Position: %zu\n", rr->type, pos);
 
     // Read CLASS.
     if (read_u16(buf, buf_len, &pos, &rr->class) < 0) return -1; // Read CLASS.
-    printf("Debugging: Resource Record Class: %u\n", rr->class);
-    // pos += name_consumed;
+    printf("Debugging: Resource Record Class: %u and next Position: %zu\n", rr->class, pos);
 
     // Read TTL.
     if ( read_u32(buf, buf_len, &pos, &rr->ttl) < 0) return -1;
-    printf("Debugging: Resource Record TTL: %u\n", rr->ttl);
-    // pos += name_consumed;
+    printf("Debugging: Resource Record TTL: %u and next Position: %zu\n", rr->ttl, pos);
 
     // Read RDLENGTH.
     if (read_u16(buf, buf_len, &pos, &rr->rdata.len) < 0) return -1;
-    printf("Debugging: Resource Record RDL  ENGTH: %u\n", rr->rdata.len);
-    // pos += name_consumed;
+    printf("Debugging: Resource Record RDL  ENGTH: %u and next Position: %zu\n", rr->rdata.len, pos);
 
     // Validate RDLENGTH.
     if (rr->rdata.len > buf_len) return -1; // RDLENGTH exceeds buffer length.
