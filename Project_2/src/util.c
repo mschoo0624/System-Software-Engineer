@@ -10,7 +10,6 @@
 #include "../include/parser.h"
 
 /* ===== Safe Buffer Read Functions ===== */
-
 int read_u8(const uint8_t *buf, size_t len, size_t *offset, uint8_t *out) {
     // Checks the bound of the offset to prevent buffer overflow.
     if (*offset + 1 > len) return -1; // if it overflow then return -1.
@@ -42,7 +41,6 @@ int read_u32(const uint8_t *buf, size_t len, size_t *offset, uint32_t *out) {
 }
 
 /* ===== Logging Helper ===== */
-
 void log_debug(const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);

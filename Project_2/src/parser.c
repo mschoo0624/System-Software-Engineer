@@ -69,7 +69,6 @@ int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
     total bytes consumed = 1 + 3 + 1 + 7 + 1 + 3 + 1 = 17 bytes
 
     Length Byte = 0-63 : indicates the length of the next label.
-    DNS reverses the top two bits of the length byte for the compression pointer.
     00xxxxxx → normal label
     11xxxxxx → compression pointer (eg... mail.google.com with pointer to google.com)
     so the max length of a label is 63 bytes. "0X00111111" = 63
@@ -85,13 +84,12 @@ int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
     while (1) {
         uint8_t len_byte = buf[pos]; // 2 bytes for length byte.
         size_t len_header = len_byte;
-        // Debugging printout statements.
-        printf("Debugging: Length byte at position %zu: 0x%02X\n", pos, len_byte); 
-        printf("Debugging: Length header value: %zu\n", len_header);
         
         if (pos + 1 > buf_len) return -1; // Bounds check.
-
-        if (read_u8(buf, buf_len, &pos, &len_byte) < 0) return -1; // Read length byte.       
+        
+        if (read_u8(buf, buf_len, &pos, &len_byte) < 0) return -1; // Read length byte. which is 0X03 for "www" in the example.
+        printf("Debugging: Length Byte: 0X%02X\n", len_byte);
+        
         // end of name check like null byte.
         if (len_byte == 0){   
             pos++; // Move past the null byte.      
@@ -100,32 +98,34 @@ int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
             }
             break;
         }
-        // Compressiong pointer check. 11xxxxxx → 
-        if ((len_byte & 0XC0) == 0XC0) {
-            printf("Debugging: Inside the Compression Pointer Check\n");
-            uint8_t next_byte = buf[pos+1]; //  Next byte of the pointer
-            printf("Debugging: Compression pointer detected at position %zu\n", pos);
-            if (read_u8(buf, buf_len, &pos + 1, &next_byte) < 0) return -1; // Read next byte for pointer calculation.
 
-            uint16_t pointer_offset = ((len_byte & 0X3F) << 8) | next_byte; // Calculate pointer offset 14bits.
-            if (pointer_offset >= buf_len) return -1; // Validate pointer offset.
-            if (!jumped) *consumed = (pos - offset) + 2; // Since compression pointer skips the jump bytes so count them. 
+        // Compressiong pointer check. 11xxxxxx → 
+        if ((len_byte & 0XC0) == 0XC0) {            
+            uint8_t next_byte = buf[pos]; //  Next byte of the pointer
+            printf("Debugging: The string of the next byte is 0X%02X.\n", next_byte);
             
+            uint16_t pointer_offset = ((len_byte & 0X3F) << 8) | next_byte; // Calculate pointer offset 14bits.
+            printf("Debugging: Calculated Pointer Offset: %u bits.\n", pointer_offset);
+
+            if (pointer_offset + 1 > buf_len) return -1; // Validate pointer offset.
+            printf("Debugging: Calculation is (pos: %zu + 2) - offset: %zu.\n", pos, offset);
+            if (!jumped) *consumed = (pos + 1) - offset; // Since compression pointer skips the jump bytes so count them. 
+            
+            // Jump to the pointer offset.
             jumped = 1; // Set jumped flag to true.
             pos = pointer_offset; // Jump to the pointer offset.
             jump_offset += 1; // Count the jump to prevent loops.
+            continue;
 
-            if (++jump_offset > 16) return -1;
+            if (jump_offset > 16) return -1;
             continue;
         }
 
         // Normal label processing.
         if ((len_byte & 0XC0) == 0x00) {
-            printf("Debugging: Inside the Normal Label Processing\n");
             size_t label_len = len_byte; // To extract the length of the label.
             if (label_len == 0 || label_len > DNS_MAX_LABEL_LEN) return -1;
-            printf("Debugging: The length of the label is %zu\n", label_len);
-
+            
             if (pos + 1 + label_len > buf_len) return -1; // Bounds check.
             // Adding the "." between the labels.
             if (out_pos > 0){
@@ -138,10 +138,9 @@ int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
                 if (out_pos >= out_len - 1) return -1; // Ensure space for null terminator.
                 out[out_pos++] = buf[pos+i]; // Copy label character to output.
             }
-            
-            out[out_pos] = '\0'; // Temporarily null-terminate for printf
 
             pos += label_len; // Advance position in buffer.
+            out[out_pos] = '\0'; // Temporarily null-terminate for printf
             if (!jumped) (*consumed) += pos - offset; // Account for label length byte and label if no jump occurred
         } else {
             return -1;
@@ -199,9 +198,10 @@ int parse_resource_record(const uint8_t *buf, size_t buf_len, size_t *offset,
     size_t name_consumed = 0; // Bytes consumed for the name.
 
     // Handling the NAME.
-    if (decode_name(buf, buf_len, pos, rr->name, sizeof(rr->name), &name_consumed) < 0) return -1; // Decode domain name.
-    rr->name[sizeof((rr->name) - 1)] = '\0';
+    if (decode_name(buf, buf_len, pos, rr->name, sizeof(rr->name), &name_consumed) < 0) return -1;
+    rr->name[sizeof(rr->name) - 1] = '\0';
     printf("Debugging: Resource Record Name: %s, Name Consumed: %zu\n", rr->name, name_consumed);
+    
     pos += name_consumed; // Advance position by consumed bytes.
 
     // Read TYPE.
