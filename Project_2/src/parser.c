@@ -26,13 +26,10 @@ int parse_dns_header(const uint8_t *buf, size_t len, struct dns_header *hdr) {
     size_t offset = 0; // to track the current offset in buffer.
     
     if (read_u16(buf, len, &offset, &hdr->id) < 0) return -1; // if id read fails return -1, else skip two bytes to next field.
-    //offset += 2;
     if (read_u16(buf, len, &offset, &hdr->flags) < 0) return -1;
-    //offset += 2;
-    if (read_u16(buf, len, &offset, &hdr->qdcount) < 0) return -1; //offset += 2; if (read_u16(buf, len, &offset, &hdr->ancount) < 0) return -1;
-    //offset += 2;
+    if (read_u16(buf, len, &offset, &hdr->qdcount) < 0) return -1; 
+    if (read_u16(buf, len, &offset, &hdr->ancount) < 0) return -1;
     if (read_u16(buf, len, &offset, &hdr->nscount) < 0) return -1;
-    //offset += 2;
     if (read_u16(buf, len, &offset, &hdr->arcount) < 0) return -1; 
     
     // Checking counts for sanity.
@@ -97,7 +94,7 @@ int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
             break;
         }
 
-        // Compressiong pointer check. 11xxxxxx → 
+        // Compressiong pointer check. 11xxxxxx → Like the 0xC0 or 0x0C.
         if ((len_byte & 0XC0) == 0XC0) {            
             uint8_t next_byte = buf[pos]; //  Next byte of the pointer
             printf("Debugging: The string of the next byte is 0X%02X.\n", next_byte);
@@ -170,6 +167,7 @@ int parse_question_section(const uint8_t *buf, size_t buf_len, size_t *offset,
         // Handling QCLASS. It tells the class of the query.
         if (read_u16(buf, buf_len, &pos, &questions[i].qclass) < 0) return -1; // Read QCLASS.
     }
+    *offset = pos; // Update the offset to the new position after parsing all questions.
     return 0;  /* 0 = success, -1 = error */
 }
 
@@ -198,14 +196,16 @@ int parse_resource_record(const uint8_t *buf, size_t buf_len, size_t *offset,
     pos += name_consumed; // Advance position by consumed bytes.
     printf("Debugging: After decoding name, current position: %zu.\n", pos);
     
-    if (buf[pos] == 0xC0) {
+    // Check if there's other compression pointer after the name. 
+    if ((buf[pos] == 0xC0) || (buf[pos] == 0x0C)) {
         printf("WARNING: Found another pointer at %zu. Advancing manually.\n", pos);
-        pos += 2; // Manually skip the extra pointer
+        pos += name_consumed; // Manually skip the extra pointer
     }
 
     // Read TYPE.
     printf("DEBUG: Bytes at pos %zu are: %02X %02X\n", pos, buf[pos], buf[pos+1]);
     if (read_u16(buf, buf_len, &pos, &rr->type) < 0) return -1; // Read TYPE.
+    //if (rr->type == QTYPE_CNAME);
     printf("Debugging: Resource Record Type: %u and next Position: %zu\n", rr->type, pos);
 
     // Read CLASS.
@@ -222,30 +222,24 @@ int parse_resource_record(const uint8_t *buf, size_t buf_len, size_t *offset,
 
     // Validate RDLENGTH.
     if (rr->rdata.len > buf_len) return -1; // RDLENGTH exceeds buffer length.
-    switch(rr->type) {
-        case QTYPE_A:
-            if (rr->rdata.len != 4) return -1;
-            break;
-        case QTYPE_AAAA:
-            if (rr->rdata.len != 16) return -1;
-            break;
-        case QTYPE_CNAME:
-            if (rr->rdata.len < 2) return -1;
-            break;
-        case QTYPE_MX:
-            if (rr->rdata.len < 3) return -1;
-            break;
-        default:
-            // Optional: Handle unknown types or just copy the raw data
-            break;
-    }   
+    if (rr->type == QTYPE_CNAME) {
+        // if (rr->rdata.len < 2) return -1; // checking 
+        printf("Debugging: CNAME TYPE has been detected!!!");
+        char CNAME_buf[DNS_MAX_NAME_LEN];
+        size_t cname_consumed = 0;
 
-    rr->rdata.data = malloc(rr->rdata.len);
-    if (!rr->rdata.data) return -1;
+        if (decode_name(buf, buf_len, pos, CNAME_buf, sizeof(CNAME_buf), &cname_consumed) == 0) {
+            rr->rdata.data = strdup(CNAME_buf);
+            rr->rdata.len = strlen(CNAME_buf) + 1;
+        }
+    } else {
+        // Allocating the other types' raw bytes. 
+        rr->rdata.data = malloc(rr->rdata.len);
+        if (!rr->rdata.data) return -1;
+        memcpy(rr->rdata.data, buf + pos, rr->rdata.len);
+    }
 
-    memcpy(rr->rdata.data, buf + pos, rr->rdata.len);
     pos += rr->rdata.len;
-
     *offset = pos;
     return 0;  /* 0 = success, -1 = error */
 }
