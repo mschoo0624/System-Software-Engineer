@@ -8,7 +8,7 @@
 #include "../include/parser.h"
 
 /* ===== Header Parsing ===== */
-int parse_dns_header(const uint8_t *buf, size_t len, struct dns_header *hdr) {
+u32 parse_dns_header(const uint8_t *buf, size_t len, struct dns_header *hdr) {
     /* TODO: validate len >= 12, read 6 u16 fields from bytes 0-11, convert from network byte order, validate counts */
     if (len < DNS_HEADER_SIZE) return -1; // Buffer too small to contain DNS header
     /*
@@ -44,7 +44,7 @@ int parse_dns_header(const uint8_t *buf, size_t len, struct dns_header *hdr) {
 }
 
 /* ===== Name Decoding with Compression ===== */
-int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, size_t out_len, size_t *consumed) {
+u32 decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, size_t out_len, size_t *consumed) {
     /*
     example of encoding. 
     www.example.com
@@ -70,7 +70,7 @@ int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
     */
     size_t pos = offset; // Current position in buffer.
     size_t out_pos = 0; // Current position in output.
-    int jumped = 0; // Flag to indicate if we have followed a pointer.
+    u32 jumped = 0; // Flag to indicate if we have followed a pointer.
     size_t jump_offset = 0; // Offset to jump to if we follow a pointer
     *consumed = 0; // Total bytes consumed from the original starting offset.
 
@@ -78,7 +78,6 @@ int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
 
     while (1) {
         uint8_t len_byte = buf[pos]; // 2 bytes for length byte.
-        size_t len_header = len_byte;
         
         if (pos + 1 > buf_len) return -1; // Bounds check.
         
@@ -142,7 +141,7 @@ int decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
 }
 
 /* ===== Question Section Parsing ===== */
-int parse_question_section(const uint8_t *buf, size_t buf_len, size_t *offset,
+u32 parse_question_section(const uint8_t *buf, size_t buf_len, size_t *offset,
                           uint16_t qdcount, struct dns_question *questions) {
     /*
     | Field  | Size     | Description                                |
@@ -153,7 +152,7 @@ int parse_question_section(const uint8_t *buf, size_t buf_len, size_t *offset,
     */
     size_t pos = *offset; // Current position in buffer.
 
-    for (size_t i = 0; i< qdcount; i++) {
+    for (u32 i = 0; i< qdcount; i++) {
         size_t name_consumed = 0; // Bytes consumed for the name.
         
         // Handling the name domain QNAME.
@@ -172,7 +171,7 @@ int parse_question_section(const uint8_t *buf, size_t buf_len, size_t *offset,
 }
 
 /* ===== Resource Record Parsing ===== */
-int parse_resource_record(const uint8_t *buf, size_t buf_len, size_t *offset,
+u32 parse_resource_record(const uint8_t *buf, size_t buf_len, size_t *offset,
                          struct dns_resource_record *rr) {
     /* TODO: decode_name() for NAME, read TYPE/CLASS/TTL/RDLENGTH, validate RDLENGTH, parse RDATA by type, advance offset */
     /*
@@ -229,7 +228,7 @@ int parse_resource_record(const uint8_t *buf, size_t buf_len, size_t *offset,
         size_t cname_consumed = 0;
 
         if (decode_name(buf, buf_len, pos, CNAME_buf, sizeof(CNAME_buf), &cname_consumed) == 0) {
-            rr->rdata.data = strdup(CNAME_buf);
+            rr->rdata.data = (uint8_t *) strdup(CNAME_buf);
             rr->rdata.len = strlen(CNAME_buf) + 1;
         }
     } else {
