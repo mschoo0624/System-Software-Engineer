@@ -13,11 +13,6 @@ $(TARGET): $(OBJS)
 	@mkdir -p $(BINDIR)
 	$(CC) $(CFLAGS) -o $(TARGET) $(OBJS)
 
-# Target for debugging parser.c, util.c, and test_dns.c (excluding main.c)
-debug_parser: src/parser.c src/util.c
-	@mkdir -p $(BINDIR)
-	$(CC) $(CFLAGS_DEBUG) -o $(BINDIR)/test_parser src/parser.c src/util.c -Iinclude
-
 .PHONY: all debug release clean format test valgrind run debug_parser
 
 # Default build is release

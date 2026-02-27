@@ -73,6 +73,7 @@ u32 decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
     u32 jumped = 0; // Flag to indicate if we have followed a pointer.
     size_t jump_offset = 0; // Offset to jump to if we follow a pointer
     *consumed = 0; // Total bytes consumed from the original starting offset.
+    size_t origin_offset = pos;
 
     if (!consumed || !out || !buf) return -1; // Validate pointers.
 
@@ -86,7 +87,7 @@ u32 decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
         
         // end of name check like null byte.
         if (len_byte == 0){   
-            pos++; // Move past the null byte.      
+            // pos++; // Move past the null byte.      
             if (!jumped) {
                 *consumed = pos - offset; // Account for null byte if no jump occurred
             }
@@ -129,7 +130,7 @@ u32 decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
 
             pos += label_len; // Advance position in buffer.
             out[out_pos] = '\0'; // Temporarily null-terminate for printf
-            if (!jumped) (*consumed) += pos - offset; // Account for label length byte and label if no jump occurred
+            if (!jumped) (*consumed) += pos - origin_offset; // Account for label length byte and label if no jump occurred
         } else {
             return -1;
         }
@@ -220,6 +221,7 @@ u32 parse_resource_record(const uint8_t *buf, size_t buf_len, size_t *offset,
     printf("Debugging: Resource Record RDL  ENGTH: %u and next Position: %zu\n", rr->rdata.len, pos);
 
     // Validate RDLENGTH.
+    uint32_t oringial_len = rr->rdata.len;
     if (rr->rdata.len > buf_len) return -1; // RDLENGTH exceeds buffer length.
     if (rr->type == QTYPE_CNAME) {
         // if (rr->rdata.len < 2) return -1; // checking 
@@ -238,7 +240,7 @@ u32 parse_resource_record(const uint8_t *buf, size_t buf_len, size_t *offset,
         memcpy(rr->rdata.data, buf + pos, rr->rdata.len);
     }
 
-    pos += rr->rdata.len;
+    pos += oringial_len;
     *offset = pos;
     return 0;  /* 0 = success, -1 = error */
 }
