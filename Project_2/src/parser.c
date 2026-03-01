@@ -83,7 +83,6 @@ u32 decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
         if (pos + 1 > buf_len) return -1; // Bounds check.
         
         if (read_u8(buf, buf_len, &pos, &len_byte) < 0) return -1; // Read length byte. which is 0X03 for "www" in the example.
-        printf("Debugging: Length Byte: 0X%02X\n", len_byte);
         
         // end of name check like null byte.
         if (len_byte == 0){   
@@ -97,11 +96,13 @@ u32 decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
         // Compressiong pointer check. 11xxxxxx → Like the 0xC0 or 0x0C.
         if ((len_byte & 0XC0) == 0XC0) {            
             uint8_t next_byte = buf[pos]; //  Next byte of the pointer
-            printf("Debugging: The string of the next byte is 0X%02X.\n", next_byte);
             
-            if (!jumped) *consumed = (pos + 1) - offset; // Since compression pointer skips the jump bytes so count them.
-            uint16_t pointer_offset = ((len_byte & 0x3F) << 8) | next_byte; // Calculate pointer offset 14bits. 
             // Jump to the pointer offset.
+            if (!jumped) {
+                *consumed = (pos + 1) - offset; // Since compression pointer skips the jump bytes so count them.
+            } 
+
+            uint16_t pointer_offset = ((len_byte & 0x3F) << 8) | next_byte; // Calculate pointer offset 14bits. 
             pos = pointer_offset; // Jump to the pointer offset.jumped = 1; 
             jumped = 1; // Set jumped flag to true.
             jump_offset++;
@@ -130,7 +131,7 @@ u32 decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
 
             pos += label_len; // Advance position in buffer.
             out[out_pos] = '\0'; // Temporarily null-terminate for printf
-            if (!jumped) (*consumed) += pos - origin_offset; // Account for label length byte and label if no jump occurred
+            if (!jumped) (*consumed) += pos - offset; // Account for label length byte and label if no jump occurred
         } else {
             return -1;
         }
@@ -185,53 +186,39 @@ u32 parse_resource_record(const uint8_t *buf, size_t buf_len, size_t *offset,
     */
     size_t pos = *offset; // Current position in buffer.
     size_t name_consumed = 0; // Bytes consumed for the name.
-    printf("Debugging: Parse Resource Record current position: %zu.\n", pos);
 
     // Handling the NAME.
-    printf("Debugging: About to decode name at position %zu\n", pos);
     if (decode_name(buf, buf_len, pos, rr->name, sizeof(rr->name), &name_consumed) < 0) return -1;
     rr->name[sizeof(rr->name) - 1] = '\0';
-    printf("Debugging: Resource Record Name: %s, Name Consumed: %zu\n", rr->name, name_consumed);
     
     pos += name_consumed; // Advance position by consumed bytes.
-    printf("Debugging: After decoding name, current position: %zu.\n", pos);
-    
-    // Check if there's other compression pointer after the name. 
-    if ((buf[pos] == 0xC0) || (buf[pos] == 0x0C)) {
-        printf("WARNING: Found another pointer at %zu. Advancing manually.\n", pos);
-        pos += name_consumed; // Manually skip the extra pointer
-    }
 
-    // Read TYPE.
-    printf("DEBUG: Bytes at pos %zu are: %02X %02X\n", pos, buf[pos], buf[pos+1]);
+    // Read TYPE.;
     if (read_u16(buf, buf_len, &pos, &rr->type) < 0) return -1; // Read TYPE.
     //if (rr->type == QTYPE_CNAME);
-    printf("Debugging: Resource Record Type: %u and next Position: %zu\n", rr->type, pos);
 
     // Read CLASS.
     if (read_u16(buf, buf_len, &pos, &rr->class) < 0) return -1; // Read CLASS.
-    printf("Debugging: Resource Record Class: %u and next Position: %zu\n", rr->class, pos);
 
     // Read TTL.
     if ( read_u32(buf, buf_len, &pos, &rr->ttl) < 0) return -1;
-    printf("Debugging: Resource Record TTL: %u and next Position: %zu\n", rr->ttl, pos);
 
     // Read RDLENGTH.
     if (read_u16(buf, buf_len, &pos, &rr->rdata.len) < 0) return -1;
-    printf("Debugging: Resource Record RDL  ENGTH: %u and next Position: %zu\n", rr->rdata.len, pos);
-
+    
     // Validate RDLENGTH.
     uint32_t oringial_len = rr->rdata.len;
+    size_t rdata_start = pos;
+
     if (rr->rdata.len > buf_len) return -1; // RDLENGTH exceeds buffer length.
+
     if (rr->type == QTYPE_CNAME) {
-        // if (rr->rdata.len < 2) return -1; // checking 
-        printf("Debugging: CNAME TYPE has been detected!!!");
         char CNAME_buf[DNS_MAX_NAME_LEN];
         size_t cname_consumed = 0;
 
         if (decode_name(buf, buf_len, pos, CNAME_buf, sizeof(CNAME_buf), &cname_consumed) == 0) {
             rr->rdata.data = (uint8_t *) strdup(CNAME_buf);
-            rr->rdata.len = strlen(CNAME_buf) + 1;
+            // rr->rdata.len = strlen(CNAME_buf) + 1;
         }
     } else {
         // Allocating the other types' raw bytes. 
@@ -240,7 +227,6 @@ u32 parse_resource_record(const uint8_t *buf, size_t buf_len, size_t *offset,
         memcpy(rr->rdata.data, buf + pos, rr->rdata.len);
     }
 
-    pos += oringial_len;
-    *offset = pos;
+    *offset = rdata_start + oringial_len; // Advance offset by RDLENGTH after reading RDATA.
     return 0;  /* 0 = success, -1 = error */
 }
