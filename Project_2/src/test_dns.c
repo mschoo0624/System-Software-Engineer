@@ -30,6 +30,8 @@ int main() {
         0x08, 0x08, 0x08, 0x08                          // IP 8.8.8.8
     };
 
+    google_packet[44] = 0xc0;
+
     // PACKET 2: Wikipedia CDN packet
     // Offset 12: en.wikipedia.org
     // Offset 34: Answer 1 (Pointer to en.wikipedia.org)
@@ -43,6 +45,8 @@ int main() {
         0xc0, 0x2e, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x04, // Ans 2 (Type A)
         198, 35, 26, 96                                // Correct Wikipedia IP
     };
+
+    wiki_packet[64] = 0xc0;
 
     char name_out[256];
     size_t consumed = 0;

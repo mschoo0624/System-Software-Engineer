@@ -1,0 +1,22 @@
+break parse_resource_record
+break decode_name
+run
+c
+s
+s
+p offset
+p *consumed
+n
+p len_byte
+p pos
+n
+p next_byte
+n
+p *consumed
+n
+p pos
+p jumped
+c
+finish
+p name_consumed
+p rr->name

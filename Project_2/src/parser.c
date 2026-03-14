@@ -77,6 +77,8 @@ u32 decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
 
     if (!consumed || !out || !buf) return -1; // Validate pointers.
 
+    printf("DEBUG: decode_name called with offset %zu, buf[offset] = %u\n", offset, buf[offset]);
+
     while (1) {
         uint8_t len_byte = buf[pos]; // 2 bytes for length byte.
         
@@ -100,6 +102,7 @@ u32 decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
             // Jump to the pointer offset.
             if (!jumped) {
                 *consumed = (pos + 1) - offset; // Since compression pointer skips the jump bytes so count them.
+                printf("DEBUG: consumed set to %zu for pointer\n", *consumed);
             } 
 
             uint16_t pointer_offset = ((len_byte & 0x3F) << 8) | next_byte; // Calculate pointer offset 14bits. 
