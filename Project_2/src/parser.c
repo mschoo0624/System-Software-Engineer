@@ -77,12 +77,10 @@ u32 decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
 
     if (!consumed || !out || !buf) return -1; // Validate pointers.
 
-    printf("DEBUG: decode_name called with offset %zu, buf[offset] = %u\n", offset, buf[offset]);
-
     while (1) {
         uint8_t len_byte = buf[pos]; // 2 bytes for length byte.
         
-        if (pos + 1 > buf_len) return -1; // Bounds check.
+        // if (pos + 1 > buf_len) return -1; // Bounds check.
         
         if (read_u8(buf, buf_len, &pos, &len_byte) < 0) return -1; // Read length byte. which is 0X03 for "www" in the example.
         
@@ -102,7 +100,6 @@ u32 decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, si
             // Jump to the pointer offset.
             if (!jumped) {
                 *consumed = (pos + 1) - offset; // Since compression pointer skips the jump bytes so count them.
-                printf("DEBUG: consumed set to %zu for pointer\n", *consumed);
             } 
 
             uint16_t pointer_offset = ((len_byte & 0x3F) << 8) | next_byte; // Calculate pointer offset 14bits. 
@@ -196,18 +193,10 @@ u32 parse_resource_record(const uint8_t *buf, size_t buf_len, size_t *offset,
     
     pos += name_consumed; // Advance position by consumed bytes.
 
-    // Read TYPE.;
     if (read_u16(buf, buf_len, &pos, &rr->type) < 0) return -1; // Read TYPE.
-    //if (rr->type == QTYPE_CNAME);
-
-    // Read CLASS.
     if (read_u16(buf, buf_len, &pos, &rr->class) < 0) return -1; // Read CLASS.
-
-    // Read TTL.
-    if ( read_u32(buf, buf_len, &pos, &rr->ttl) < 0) return -1;
-
-    // Read RDLENGTH.
-    if (read_u16(buf, buf_len, &pos, &rr->rdata.len) < 0) return -1;
+    if (read_u32(buf, buf_len, &pos, &rr->ttl) < 0) return -1; // Read TTL
+    if (read_u16(buf, buf_len, &pos, &rr->rdata.len) < 0) return -1; // Read RDLENGTH
     
     // Validate RDLENGTH.
     uint32_t oringial_len = rr->rdata.len;

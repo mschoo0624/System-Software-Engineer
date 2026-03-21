@@ -30,8 +30,6 @@ int main() {
         0x08, 0x08, 0x08, 0x08                          // IP 8.8.8.8
     };
 
-    google_packet[44] = 0xc0;
-
     // PACKET 2: Wikipedia CDN packet
     // Offset 12: en.wikipedia.org
     // Offset 34: Answer 1 (Pointer to en.wikipedia.org)
@@ -40,13 +38,11 @@ int main() {
         0x55, 0x55, 0x81, 0x80, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
         0x02, 'e', 'n', 0x09, 'w', 'i', 'k', 'i', 'p', 'e', 'd', 'i', 'a', 0x03, 'o', 'r', 'g', 0x00,
         0x00, 0x01, 0x00, 0x01,                         // Question ends at 34
-        0xc0, 0x0c, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10, 0x00, 0x12, // Ans 1 (Type CNAME)
+        0xc0, 0x0c, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x0e, 0x10, 0x00, 0x14, // Ans 1 (Type CNAME)
         0x09, 'w', 'i', 'k', 'i', 'p', 'e', 'd', 'i', 'a', 0x03, 'm', 'a', 'p', 0x04, 't', 'e', 's', 't', 0x00,
         0xc0, 0x2e, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x04, // Ans 2 (Type A)
         198, 35, 26, 96                                // Correct Wikipedia IP
     };
-
-    wiki_packet[64] = 0xc0;
 
     char name_out[256];
     size_t consumed = 0;
@@ -67,7 +63,7 @@ int main() {
 
     // --- TEST 4: GOOGLE RESOURCE RECORD ---
     run_test_header("Test 4: Google Resource Record");
-    offset = 44; // Start of Answer section
+    offset = 45 ; // Start of Answer section
     if (parse_resource_record(google_packet, sizeof(google_packet), &offset, &rr) == 0) {
         printf("RR: %s, Type: %u, TTL: %u, IP: %u.%u.%u.%u\n", 
                 rr.name, rr.type, rr.ttl, rr.rdata.data[0], rr.rdata.data[1], rr.rdata.data[2], rr.rdata.data[3]);
@@ -94,6 +90,73 @@ int main() {
         printf("[Ans 2] %s, Type: %u, IP: %u.%u.%u.%u\n", 
                 rr.name, rr.type, rr.rdata.data[0], rr.rdata.data[1], rr.rdata.data[2], rr.rdata.data[3]);
         free(rr.rdata.data);
+    }
+
+    // --- TEST 6: EXAMPLE.COM SIMPLE QUERY+ANSWER ---
+    run_test_header("Test 6: example.com A (new-domain)");
+    uint8_t example_packet[] = {
+        0xaa, 0xaa, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+        0x03, 'w', 'w', 'w', 0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'c', 'o', 'm', 0x00,
+        0x00, 0x01, 0x00, 0x01,
+        0xc0, 0x0c, // pointer to question name
+        0x00, 0x01, 0x00, 0x01, // TYPE A CLASS IN
+        0x00, 0x00, 0x00, 0x3c, // TTL 60
+        0x00, 0x04, // RDLENGTH 4
+        192, 0, 2, 1
+    };
+
+    offset = 12;
+    if (parse_question_section(example_packet, sizeof(example_packet), &offset, 1, &q) == 0) {
+        printf("[Example] Query %s (offset %zu)\n", q.qname, offset);
+    } else {
+        printf("[Example] parse_question_section failed\n");
+    }
+
+    if (parse_resource_record(example_packet, sizeof(example_packet), &offset, &rr) == 0) {
+        printf("[Example] RR %s type=%u class=%u ttl=%u ip=%u.%u.%u.%u\n", rr.name, rr.type, rr.class, rr.ttl,
+            rr.rdata.data[0], rr.rdata.data[1], rr.rdata.data[2], rr.rdata.data[3]);
+        free(rr.rdata.data);
+    } else {
+        printf("[Example] parse_resource_record failed\n");
+    }
+
+    // --- TEST 7: MORE COMPLICATED DOMAIN URL (compressed, nested) ---
+    run_test_header("Test 7: complex domain with compression");
+    uint8_t complex_packet[] = {
+        0xbb, 0xbb, 0x81, 0x80, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
+        // QName (www.api.shop.example.com)
+        0x03, 'w', 'w', 'w', 0x03, 'a', 'p', 'i', 0x04, 's', 'h', 'o', 'p',
+        0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e', 0x03, 'c', 'o', 'm', 0x00,
+        0x00, 0x01, 0x00, 0x01,
+        // Ans1: CNAME -> service.example.com (use pointer to example.com at 0x19)
+        0xc0, 0x0c, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x0a,
+        0x07, 's', 'e', 'r', 'v', 'i', 'c', 'e', 0xc0, 0x19,
+        // Ans2: A record for service.example.com
+        0x07, 's', 'e', 'r', 'v', 'i', 'c', 'e', 0xc0, 0x19, 0x00, 0x01, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x3c, 0x00, 0x04,
+        203, 0, 113, 5
+    };
+
+    offset = 12;
+    if (parse_question_section(complex_packet, sizeof(complex_packet), &offset, 1, &q) == 0) {
+        printf("[Complex] Query %s (offset %zu)\n", q.qname, offset);
+    } else {
+        printf("[Complex] parse_question_section failed\n");
+    }
+
+    if (parse_resource_record(complex_packet, sizeof(complex_packet), &offset, &rr) == 0) {
+        printf("[Complex] RR1 %s type=%u ttl=%u\n", rr.name, rr.type, rr.ttl);
+        free(rr.rdata.data);
+    } else {
+        printf("[Complex] RR1 parse failed\n");
+    }
+
+    if (parse_resource_record(complex_packet, sizeof(complex_packet), &offset, &rr) == 0) {
+        printf("[Complex] RR2 %s type=%u ttl=%u ip=%u.%u.%u.%u\n", rr.name, rr.type, rr.ttl,
+            rr.rdata.data[0], rr.rdata.data[1], rr.rdata.data[2], rr.rdata.data[3]);
+        free(rr.rdata.data);
+    } else {
+        printf("[Complex] RR2 parse failed\n");
     }
 
     return 0;
