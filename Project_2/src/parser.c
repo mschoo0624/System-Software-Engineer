@@ -9,11 +9,11 @@
 
 /* ===== Header Parsing ===== */
 u32 parse_dns_header(const uint8_t *buf, size_t len, struct dns_header *hdr) {
-    /* TODO: validate len >= 12, read 6 u16 fields from bytes 0-11, convert from network byte order, validate counts */
-    if (len < DNS_HEADER_SIZE) return -1; // Buffer too small to contain DNS header
+    if (len < DNS_HEADER_SIZE) return -1;
+
     /*
-    DNS headr is exactly 12 bytes long. 
-    
+    DNS header is exactly 12 bytes long.
+
     Offset  Size  Field
     -------------------
     0       2     ID
@@ -23,128 +23,112 @@ u32 parse_dns_header(const uint8_t *buf, size_t len, struct dns_header *hdr) {
     8       2     NSCOUNT
     10      2     ARCOUNT
     */
-    size_t offset = 0; // to track the current offset in buffer.
-    
-    if (read_u16(buf, len, &offset, &hdr->id) < 0) return -1; // if id read fails return -1, else skip two bytes to next field.
-    if (read_u16(buf, len, &offset, &hdr->flags) < 0) return -1;
-    if (read_u16(buf, len, &offset, &hdr->qdcount) < 0) return -1; 
+    size_t offset = 0;
+
+    if (read_u16(buf, len, &offset, &hdr->id)      < 0) return -1;
+    if (read_u16(buf, len, &offset, &hdr->flags)   < 0) return -1;
+    if (read_u16(buf, len, &offset, &hdr->qdcount) < 0) return -1;
     if (read_u16(buf, len, &offset, &hdr->ancount) < 0) return -1;
     if (read_u16(buf, len, &offset, &hdr->nscount) < 0) return -1;
-    if (read_u16(buf, len, &offset, &hdr->arcount) < 0) return -1; 
-    
-    // Checking counts for sanity.
-    if (hdr->qdcount > DNS_MAX_QUESTIONS ||
-        hdr->ancount > DNS_MAX_ANSWERS ||
-        hdr->nscount > DNS_MAX_AUTHORITIES ||
+    if (read_u16(buf, len, &offset, &hdr->arcount) < 0) return -1;
+
+    if (hdr->qdcount > DNS_MAX_QUESTIONS  ||
+        hdr->ancount > DNS_MAX_ANSWERS    ||
+        hdr->nscount > DNS_MAX_AUTHORITIES||
         hdr->arcount > DNS_MAX_ADDITIONAL) {
-        return -1; // Counts exceed maximum allowed
+        return -1;
     }
-    
-    return 0;  /* 0 = success, -1 = error */
+
+    return 0;
 }
 
 /* ===== Name Decoding with Compression ===== */
-u32 decode_name(const uint8_t *buf, size_t buf_len, size_t offset, char *out, size_t out_len, size_t *consumed) {
+u32 decode_name(const uint8_t *buf, size_t buf_len, size_t offset,
+                char *out, size_t out_len, size_t *consumed) {
     /*
-    example of encoding. 
-    www.example.com
-    03 w w w
-    07 e x a m p l e
-    03 c o m
-    00 /0
+    Wire format: each label is prefixed by its length byte, terminated by 0x00.
+      www.example.com → 03 'w''w''w' 07 'e'...'e' 03 'c''o''m' 00
 
-    1.Read first byte → 03
-    2.Read next 3 bytes → "www"
-    3.Read next byte → 07
-    4.Read next 7 bytes → "example"
-    5.Read next byte → 03
-    6.Read next 3 bytes → "com"
-    7.Read next byte → 00
-    8.Stop
-    total bytes consumed = 1 + 3 + 1 + 7 + 1 + 3 + 1 = 17 bytes
-
-    Length Byte = 0-63 : indicates the length of the next label.
-    00xxxxxx → normal label
-    11xxxxxx → compression pointer (eg... mail.google.com with pointer to google.com)
-    so the max length of a label is 63 bytes. "0X00111111" = 63
+    Compression pointers: two bytes with top bits 11xxxxxx xxxxxxxx
+      The lower 14 bits give the absolute offset to jump to in the packet.
+      Once we jump, consumed is already set — we never update it again.
     */
-    size_t pos = offset; // Current position in buffer.
-    size_t out_pos = 0; // Current position in output.
-    u32 jumped = 0; // Flag to indicate if we have followed a pointer.
-    size_t jump_offset = 0; // Offset to jump to if we follow a pointer
-    *consumed = 0; // Total bytes consumed from the original starting offset.
-    size_t origin_offset = pos;
+    if (!buf || !out || !consumed) return -1;
 
-    if (!consumed || !out || !buf) return -1; // Validate pointers.
+    size_t start = offset;   /* snapshot — consumed = pos - start when done */
+    size_t pos   = offset;
+    size_t out_pos = 0;
+    u32    jumped = 0;
+    size_t jump_count = 0;
+
+    *consumed = 0;
 
     while (1) {
-        uint8_t len_byte = buf[pos]; // 2 bytes for length byte.
-        
-        // if (pos + 1 > buf_len) return -1; // Bounds check.
-        
-        if (read_u8(buf, buf_len, &pos, &len_byte) < 0) return -1; // Read length byte. which is 0X03 for "www" in the example.
-        
-        // end of name check like null byte.
-        if (len_byte == 0){   
-            // pos++; // Move past the null byte.      
+        uint8_t len_byte;
+        if (read_u8(buf, buf_len, &pos, &len_byte) < 0) return -1;
+
+        /* --- null terminator: end of name --- */
+        if (len_byte == 0) {
             if (!jumped) {
-                *consumed = pos - offset; // Account for null byte if no jump occurred
+                *consumed = pos - start;
             }
             break;
         }
 
-        // Compressiong pointer check. 11xxxxxx → Like the 0xC0 or 0x0C.
-        if ((len_byte & 0XC0) == 0XC0) {            
-            uint8_t next_byte = buf[pos]; //  Next byte of the pointer
-            
-            // Jump to the pointer offset.
+        /* --- compression pointer: top two bits are 11 --- */
+        if ((len_byte & 0xC0) == 0xC0) {
+            uint8_t next_byte;
+            if (read_u8(buf, buf_len, &pos, &next_byte) < 0) return -1;
+
             if (!jumped) {
-                *consumed = (pos + 1) - offset; // Since compression pointer skips the jump bytes so count them.
-            } 
+                /* consumed = bytes from original start up to and including
+                   the two pointer bytes.  pos is now past both of them. */
+                *consumed = pos - start;
+            }
 
-            uint16_t pointer_offset = ((len_byte & 0x3F) << 8) | next_byte; // Calculate pointer offset 14bits. 
-            pos = pointer_offset; // Jump to the pointer offset.jumped = 1; 
-            jumped = 1; // Set jumped flag to true.
-            jump_offset++;
+            uint16_t ptr = ((uint16_t)(len_byte & 0x3F) << 8) | next_byte;
 
-            if (jump_offset > 16) return -1;
-            continue; // Continue processing at the new position.
+            /* Basic loop / self-reference guard */
+            if (ptr >= buf_len) return -1;
+            if (++jump_count > 16) return -1;
+
+            pos    = ptr;
+            jumped = 1;
+            continue;
         }
 
-        // Normal label processing.
-        if ((len_byte & 0XC0) == 0x00) {
-            size_t label_len = len_byte; // To extract the length of the label.
+        /* --- normal label: top two bits are 00 --- */
+        if ((len_byte & 0xC0) == 0x00) {
+            size_t label_len = len_byte;
             if (label_len == 0 || label_len > DNS_MAX_LABEL_LEN) return -1;
-            
-            if (pos + 1 + label_len > buf_len) return -1; // Bounds check.
-            // Adding the "." between the labels.
-            if (out_pos > 0){
-                if (out_pos >= out_len - 1) return -1; // Ensure space for dot and null terminator.
-                out[out_pos++] = '.'; // Add dot separator to the outputs .
+
+            /* Bounds: we need label_len more bytes starting at pos */
+            if (pos + label_len > buf_len) return -1;
+
+            /* Dot separator between labels */
+            if (out_pos > 0) {
+                if (out_pos >= out_len - 1) return -1;
+                out[out_pos++] = '.';
             }
 
-            // Now copying the label to output. 
-            for (size_t i = 0; i < label_len; i++){
-                if (out_pos >= out_len - 1) return -1; // Ensure space for null terminator.
-                out[out_pos++] = buf[pos+i]; // Copy label character to output.
+            /* Copy label characters */
+            for (size_t i = 0; i < label_len; i++) {
+                if (out_pos >= out_len - 1) return -1;
+                out[out_pos++] = (char)buf[pos + i];
             }
-
-            pos += label_len; // Advance position in buffer.
-            out[out_pos] = '\0'; // Temporarily null-terminate for printf
-            if (!jumped) (*consumed) += pos - offset; // Account for label length byte and label if no jump occurred
+            pos += label_len;
         } else {
             return -1;
         }
     }
 
-    if (out_pos >= out_len) return -1; // Ensure space for null terminator.
-    out[out_pos] = '\0'; // Null-terminate the output string.
-    return 0;  /* 0 = success, -1 = error */
+    out[out_pos] = '\0';
+    return 0;
 }
 
 /* ===== Question Section Parsing ===== */
 u32 parse_question_section(const uint8_t *buf, size_t buf_len, size_t *offset,
-                          uint16_t qdcount, struct dns_question *questions) {
+                           uint16_t qdcount, struct dns_question *questions) {
     /*
     | Field  | Size     | Description                                |
     | ------ | -------- | ------------------------------------------ |
@@ -152,73 +136,79 @@ u32 parse_question_section(const uint8_t *buf, size_t buf_len, size_t *offset,
     | QTYPE  | 2 bytes  | Type of query (A, AAAA, MX, etc.)          |
     | QCLASS | 2 bytes  | Class (usually IN = 1)                     |
     */
-    size_t pos = *offset; // Current position in buffer.
+    size_t pos = *offset;
 
-    for (u32 i = 0; i< qdcount; i++) {
-        size_t name_consumed = 0; // Bytes consumed for the name.
-        
-        // Handling the name domain QNAME.
-        if (decode_name(buf, buf_len, pos, questions[i].qname, DNS_MAX_NAME_LEN, &name_consumed) < 0) return -1; // Decode domain name.
-        questions[i].qname[sizeof(questions[i].qname) - 1] = '\0'; // Ensure null termination.
-        pos += name_consumed; // Advance position by consumed bytes.
-        
-        // Handling QTYPE. It tells the type of the records being requested.
-        if (read_u16(buf, buf_len, &pos, &questions[i].qtype) < 0 || pos + 2 > buf_len) return -1; // Read QTYPE.
+    for (uint16_t i = 0; i < qdcount; i++) {
+        size_t name_consumed = 0;
 
-        // Handling QCLASS. It tells the class of the query.
-        if (read_u16(buf, buf_len, &pos, &questions[i].qclass) < 0) return -1; // Read QCLASS.
+        if (decode_name(buf, buf_len, pos,
+                        questions[i].qname, DNS_MAX_NAME_LEN,
+                        &name_consumed) < 0) return -1;
+
+        questions[i].qname[sizeof(questions[i].qname) - 1] = '\0';
+        pos += name_consumed;
+
+        /* FIX 5: read_u16 guards bounds internally; no extra check needed */
+        if (read_u16(buf, buf_len, &pos, &questions[i].qtype)  < 0) return -1;
+        if (read_u16(buf, buf_len, &pos, &questions[i].qclass) < 0) return -1;
     }
-    *offset = pos; // Update the offset to the new position after parsing all questions.
-    return 0;  /* 0 = success, -1 = error */
+
+    *offset = pos;
+    return 0;
 }
 
 /* ===== Resource Record Parsing ===== */
 u32 parse_resource_record(const uint8_t *buf, size_t buf_len, size_t *offset,
-                         struct dns_resource_record *rr) {
-    /* TODO: decode_name() for NAME, read TYPE/CLASS/TTL/RDLENGTH, validate RDLENGTH, parse RDATA by type, advance offset */
+                          struct dns_resource_record *rr) {
     /*
-    NAME: Domain name of the RR (can be compressed, same as QNAME)
-    TYPE: What kind of record (A, AAAA, MX, CNAME, etc.) — 2 bytes
-    CLASS: Usually IN (Internet) — 2 bytes
-    TTL: Time-to-live in seconds — 4 bytes
-    RDLENGTH: Length of RDATA — 2 bytes
-    RDATA: Record-specific data — variable length depending on TYPE
+    NAME:     Domain name (variable, may be compressed)
+    TYPE:     2 bytes  — A, AAAA, CNAME, MX, …
+    CLASS:    2 bytes  — usually IN (1)
+    TTL:      4 bytes  — seconds to cache
+    RDLENGTH: 2 bytes  — byte count of RDATA
+    RDATA:    variable — type-specific payload
     */
-    size_t pos = *offset; // Current position in buffer.
-    size_t name_consumed = 0; // Bytes consumed for the name.
 
-    // Handling the NAME.
-    if (decode_name(buf, buf_len, pos, rr->name, sizeof(rr->name), &name_consumed) < 0) return -1;
+    size_t pos = *offset;
+    size_t name_consumed = 0;
+
+    if (decode_name(buf, buf_len, pos, rr->name, sizeof(rr->name),
+                    &name_consumed) < 0) return -1;
     rr->name[sizeof(rr->name) - 1] = '\0';
-    
-    pos += name_consumed; // Advance position by consumed bytes.
+    pos += name_consumed;
 
-    if (read_u16(buf, buf_len, &pos, &rr->type) < 0) return -1; // Read TYPE.
-    if (read_u16(buf, buf_len, &pos, &rr->class) < 0) return -1; // Read CLASS.
-    if (read_u32(buf, buf_len, &pos, &rr->ttl) < 0) return -1; // Read TTL
-    if (read_u16(buf, buf_len, &pos, &rr->rdata.len) < 0) return -1; // Read RDLENGTH
-    
-    // Validate RDLENGTH.
-    uint32_t oringial_len = rr->rdata.len;
-    size_t rdata_start = pos;
+    if (read_u16(buf, buf_len, &pos, &rr->type)     < 0) return -1;
+    if (read_u16(buf, buf_len, &pos, &rr->class)    < 0) return -1;
+    if (read_u32(buf, buf_len, &pos, &rr->ttl)      < 0) return -1;
+    if (read_u16(buf, buf_len, &pos, &rr->rdata.len)< 0) return -1;
 
-    if (rr->rdata.len > buf_len) return -1; // RDLENGTH exceeds buffer length.
+    uint16_t rdlength   = rr->rdata.len;
+    size_t   rdata_start = pos;
+    
+    if (pos + rdlength > buf_len) return -1;
+
+    rr->rdata.data = NULL;
 
     if (rr->type == QTYPE_CNAME) {
-        char CNAME_buf[DNS_MAX_NAME_LEN];
-        size_t cname_consumed = 0;
+        char     cname_buf[DNS_MAX_NAME_LEN];
+        size_t   cname_consumed = 0;
 
-        if (decode_name(buf, buf_len, pos, CNAME_buf, sizeof(CNAME_buf), &cname_consumed) == 0) {
-            rr->rdata.data = (uint8_t *) strdup(CNAME_buf);
-            // rr->rdata.len = strlen(CNAME_buf) + 1;
-        }
-    } else {
-        // Allocating the other types' raw bytes. 
-        rr->rdata.data = malloc(rr->rdata.len);
+        /* FIX 7: propagate decode_name failure */
+        if (decode_name(buf, buf_len, pos, cname_buf, sizeof(cname_buf),
+                        &cname_consumed) < 0) return -1;
+
+        /* FIX 8: check strdup */
+        rr->rdata.data = (uint8_t *)strdup(cname_buf);
         if (!rr->rdata.data) return -1;
-        memcpy(rr->rdata.data, buf + pos, rr->rdata.len);
+
+    } else {
+        rr->rdata.data = malloc(rdlength);
+        if (!rr->rdata.data) return -1;
+        memcpy(rr->rdata.data, buf + pos, rdlength);
     }
 
-    *offset = rdata_start + oringial_len; // Advance offset by RDLENGTH after reading RDATA.
-    return 0;  /* 0 = success, -1 = error */
+    /* Always advance by the wire RDLENGTH so the caller lands correctly
+       on the next record, regardless of how we parsed the RDATA. */
+    *offset = rdata_start + rdlength;
+    return 0;
 }
