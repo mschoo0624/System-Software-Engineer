@@ -9,6 +9,8 @@
 #define MAX_UPSTREAMS 5
 #define MAX_LISTEN_ADDR 100
 
+typedef uint32_t u32; 
+
 typedef struct {
     char listen_addr[MAX_LISTEN_ADDR];
     uint16_t listen_port;
