@@ -5,7 +5,7 @@ CFLAGS_RELEASE = -O2 -std=gnu11 -Wall -Wextra -Iinclude
 SRCDIR = src
 BINDIR = bin
 TARGET = $(BINDIR)/resolver
-SRCS = $(wildcard $(SRCDIR)/*.c)
+SRCS = $(filter-out $(SRCDIR)/test_dns.c,$(wildcard $(SRCDIR)/*.c))
 OBJS = $(SRCS:.c=.o)
 
 # Target for building the entire project
@@ -20,6 +20,11 @@ all: release
 
 debug: CFLAGS = $(CFLAGS_DEBUG)
 debug: $(TARGET)
+
+# Compile only src/net.c with debug flags
+debug_net: CFLAGS = $(CFLAGS_DEBUG)
+debug_net:
+	$(CC) $(CFLAGS) -Iinclude -c $(SRCDIR)/net.c -o $(SRCDIR)/net.o
 
 release: CFLAGS = $(CFLAGS_RELEASE)
 release: $(TARGET)
