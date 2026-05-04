@@ -133,6 +133,7 @@ int forward_to_upstream(const char *upstream_addr, int upstream_port,
 
     // Setting up the server address structure for the upstream server.
     struct sockaddr_in upstream_addr_struct;
+    // Initializing the structure to zero and setting up the family, port and address.
     memset(&upstream_addr_struct, 0, sizeof(upstream_addr_struct));
     upstream_addr_struct.sin_family = AF_INET; // IPv4
     upstream_addr_struct.sin_port = htons(upstream_port); // Convert the upstream port to network byte order. 
@@ -184,5 +185,61 @@ int tcp_query_fallback(const char *upstream_addr, int upstream_port,
                        const uint8_t *query, size_t query_len,
                        uint8_t *response, size_t response_len) {
     /* TODO: TCP connect to upstream, send length-prefixed query, read length-prefixed response, return size or -1 */
-    return -1;
+    // Handling the edge cases. 
+    if (upstream_addr == NULL || query == NULL || query_len == 0 || response == NULL || response_len == 0) {
+        log_warn("Invalid args");
+        return -1; 
+    }
+    // Setting up the TCP socket. 
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        perror("socket");
+        return -1;
+    }
+    // setting up the server address.
+    struct sockaddr_in upstream_addr_struct;
+    // initializing the struct to zero and setting up the family, port and address.
+    memset(&upstream_addr_struct, 0, sizeof(upstream_addr_struct));
+    upstream_addr_struct.sin_family = AF_INET; // IPv4
+    upstream_addr_struct.sin_port = htons(upstream_port); // Convert the upstream port to network byte order. 
+    // Converting the address to working network. 
+    if (inet_pton(AF_INET, upstream_addr, &upstream_addr_struct.sin_addr) <= 0) {
+        perror("inet_pton error: ");
+        close(fd);
+    }
+    // connecting to the upstream server.
+    if (connect(fd, (struct sockaddr *)&upstream_addr_struct, sizeof(upstream_addr_struct)) < 0) {
+        perror("connect");
+        close(fd);
+        return -1;
+    }
+    // Sending the converted using the htons() length-prefixed query to the upstream server.
+    uint16_t query_len_net = htons((uint16_t)query_len);
+    if (send(fd, &query_len_net, sizeof(query_len_net), 0) < 0) {
+        perror("send length");
+        close(fd);  
+    }
+    if (send(fd, query, query_len, 0) < 0) {
+        perror("send query");
+        close(fd);
+        return -1;
+    }
+    // Reading the length-prefixed response from the upstream server.
+    uint16_t response_len_net;
+    if (recv(fd, &response_len_net, sizeof(response_len_net), 0) < 0) {
+        perror("recv length");
+        close(fd);
+    }
+    uint16_t response_len_host = ntohs(response_len_net);
+    if (response_len_host > response_len) {
+        log_warn("Response too large for buffer");
+        close(fd);
+    }  
+    if (recv(fd, response, response_len_host, 0) < 0) {
+        perror("recv response");
+        close(fd);
+        return -1;
+    }
+    close(fd);
+    return response_len_host;
 }
