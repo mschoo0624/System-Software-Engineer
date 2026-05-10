@@ -11,6 +11,7 @@
 
 #define MAX_INPUT 1024
 #define MAX_ARGS 100
+#define MAX_JOBS 100
 // ============================================
 // TODO 1: COMMAND PARSING
 // ============================================
@@ -127,7 +128,10 @@ int is_builtin(const char *cmd) {
     return strcmp(cmd, "cd") == 0 ||
            strcmp(cmd, "exit") == 0 ||
            strcmp(cmd, "pwd") == 0 ||
-           strcmp(cmd, "echo") == 0;
+           strcmp(cmd, "echo") == 0 ||
+           strcmp(cmd, "jobs") == 0 ||
+           strcmp(cmd, "fg") == 0 ||
+           strcmp(cmd, "bg") == 0;
 }
 
 int execute_builtin(Command *cmd) {
@@ -158,6 +162,32 @@ int execute_builtin(Command *cmd) {
             printf("%s ", cmd->args[i]);
         }
         printf("\n");
+        return 1;
+    }
+
+    if (strcmp(cmd->args[0], "jobs") == 0) {
+        // TODO: Implement jobs command - list all background jobs
+        printf("jobs: not implemented yet\n");
+        return 1;
+    }
+
+    if (strcmp(cmd->args[0], "fg") == 0) {
+        // TODO: Implement fg command - bring job to foreground
+        if (!cmd->args[1]) {
+            fprintf(stderr, "fg: missing job number\n");
+        } else {
+            printf("fg %s: not implemented yet\n", cmd->args[1]);
+        }
+        return 1;
+    }
+
+    if (strcmp(cmd->args[0], "bg") == 0) {
+        // TODO: Implement bg command - resume job in background
+        if (!cmd->args[1]) {
+            fprintf(stderr, "bg: missing job number\n");
+        } else {
+            printf("bg %s: not implemented yet\n", cmd->args[1]);
+        }
         return 1;
     }
 
@@ -197,8 +227,11 @@ int execute_command(Command *cmd) {
     } else if (pid > 0) {
         // Parent process
         // TODO: Wait for child if not background
+        // TODO: If background, add to job list
         if (!cmd->background) {
             waitpid(pid, NULL, 0);
+        } else {
+            // TODO: add_job(pid, input, 0); // running status
         }
     } else {
         // TODO: Handle fork error
@@ -278,7 +311,6 @@ int execute_pipe(char *input) {
             execvp(second->args[0], second->args);
             exit(0);
         }
-
         // Parent Process. 
         close(pipefd[0]);
         close(pipefd[1]);
@@ -300,6 +332,16 @@ int execute_pipe(char *input) {
 // Build a signal handler for:
 //   - SIGINT (Ctrl+C): Should terminate current command, not shell
 //   - SIGCHLD: Handle background process termination
+//   - SIGTSTP (Ctrl+Z): Suspend current foreground job
+//   - SIGTTIN/SIGTTOU: Handle job control for background I/O
+//
+// Additional features to implement:
+//   - Job control: Maintain a list of jobs (foreground/background)
+//   - fg command: Bring background job to foreground
+//   - bg command: Resume suspended job in background
+//   - jobs command: List all jobs with status
+//   - Proper process group management
+//   - Terminal control (tcsetpgrp) for job switching
 //
 // Function signature suggestion:
 void signal_handler(int sig) {
@@ -314,6 +356,9 @@ void signal_handler(int sig) {
             printf("Background process %d terminated.\n", pid);
         }
     }
+    // TODO: Add SIGTSTP handler to suspend foreground job
+    // TODO: Add job list management for background processes
+    // TODO: Implement proper foreground/background process groups
 }
 
 // ============================================
@@ -326,6 +371,7 @@ void signal_handler(int sig) {
 //   - echo <text>       : Print text
 //   - jobs              : List background jobs
 //   - fg %n             : Bring job to foreground
+//   - bg %n             : Resume job in background
 //
 // Function signature suggestion:
 // int is_builtin(const char *cmd) {
@@ -335,6 +381,77 @@ void signal_handler(int sig) {
 // int execute_builtin(Command *cmd) {
 //     // TODO: Execute built-in command
 // }
+
+// ============================================
+// TODO 8: JOB CONTROL
+// ============================================
+// Implement job control system:
+//   - Job struct: pid, command, status (running/stopped), job number
+//   - Global job list array or linked list
+//   - Add jobs to list when started in background or suspended
+//   - Update job status in SIGCHLD handler
+//   - Implement fg: find job by number, set as foreground, continue if stopped
+//   - Implement bg: find job by number, continue in background
+//   - Implement jobs: print all jobs with status
+//   - Handle process groups and terminal control
+//
+// Function signatures suggestion:
+typedef struct Job {
+     pid_t pid;
+     char *command;
+     int status; // 0=running, 1=stopped, 2=done
+     int job_num;
+} Job;
+
+Job *job_list[MAX_JOBS];
+int next_job_num = 1;
+
+void add_job(pid_t pid, char *cmd, int status) {
+    if (next_job_num > MAX_JOBS) {
+        fprintf(stderr, "Job limit reached.\n");
+        return;
+    }
+    Job *job = malloc(sizeof(Job));
+    job->pid = pid;
+    job->command = strdup(cmd);
+    job->status = status;
+    job->job_num = next_job_num++;
+    job_list[job->job_num] = job;
+
+}
+void remove_job(int job_num) {
+    if (job_num <= 0 || job_num > MAX_JOBS || !job_list[job_num]) {
+        fprintf(stderr, "Invalid job number.\n");
+        return;
+    }
+    free(job_list[job_num]->command);
+    free(job_list[job_num]);
+    job_list[job_num] = NULL;
+}
+Job *find_job(int job_num) {
+    if (job_num <= 0 || job_num > MAX_JOBS) {
+        fprintf(stderr, "Invalid job number.\n");
+        return NULL;
+    }
+    return job_list[job_num];
+}
+void print_jobs() {
+    for (int i = 1; i < next_job_num; i++) {
+        if (job_list[i]) {
+            printf("[%d] %s (PID: %d) - %s\n", job_list[i]->job_num, job_list[i]->command, job_list[i]->pid, 
+                job_list[i]->status == 0 ? "Running" : job_list[i]->status == 1 ? "Stopped" : "Done");
+        }
+    }
+}
+void fg_job(int job_num) {
+    // 1. Find the job by job_num
+    // 2. If job is stopped, send SIGCONT to resume it
+    // 3. Set the job's process group as foreground
+    // 4. Wait for the job to complete or be stoppe
+    // 5. Restore shell as foreground process group
+    // 6. Update job status based on how it ended
+}
+// void bg_job(int job_num);
 
 // ============================================
 // MAIN SHELL LOOP
@@ -380,8 +497,11 @@ int main() {
             execute_builtin(cmd);
         } else {
             // TODO 2: Execute external command
+            // TODO: Update to handle job control for background processes
             execute_pipe(input);
         }
+        
+        // TODO: After execution, check for completed background jobs and update job list
         
         // Free allocated memory
         for (int i = 0; cmd->args[i]; i++) {
