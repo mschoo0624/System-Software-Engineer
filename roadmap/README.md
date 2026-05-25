@@ -92,3 +92,9 @@ Identify bottlenecks
 Improve it
 
 👉 You should be able to explain why your system is fast or slow.
+
+
+the mateirals:
+https://ptgmedia.pearsoncmg.com/images/9780201633924/samplepages/0201633922.pdf
+https://man7.org/tlpi/?utm_source=chatgpt.com
+https://beej.us/guide/bgipc/?utm_source=chatgpt.com
