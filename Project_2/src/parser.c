@@ -7,6 +7,17 @@
 #include <string.h>
 #include "../include/parser.h"
 
+/* TODO: remaining work to make this a complete DNS resolver
+ * - implement full DNS response building based on parsed queries
+ * - add logic to translate questions into answers (A, AAAA, CNAME, etc.)
+ * - support additional QTYPEs beyond A and CNAME
+ * - handle DNS header flags and response codes (QR, RA, RCODE, etc.)
+ * - connect parser output to the networking layer in net.c
+ * - integrate a cache layer so repeated queries can be served quickly
+ * - add safety checks and cleanup for duplicated RDATA memory
+ * - implement end-to-end query handling in main server code
+ */
+
 /* ===== Header Parsing ===== */
 u32 parse_dns_header(const uint8_t *buf, size_t len, struct dns_header *hdr) {
     if (len < DNS_HEADER_SIZE) return -1;

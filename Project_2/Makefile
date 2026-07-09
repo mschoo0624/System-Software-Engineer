@@ -13,7 +13,7 @@ $(TARGET): $(OBJS)
 	@mkdir -p $(BINDIR)
 	$(CC) $(CFLAGS) -o $(TARGET) $(OBJS)
 
-.PHONY: all debug release clean format test valgrind run debug_parser
+.PHONY: all debug release clean format test valgrind run debug_parser net_debug
 
 # Default build is release
 all: release
@@ -25,6 +25,13 @@ debug: $(TARGET)
 debug_net: CFLAGS = $(CFLAGS_DEBUG)
 debug_net:
 	$(CC) $(CFLAGS) -Iinclude -c $(SRCDIR)/net.c -o $(SRCDIR)/net.o
+
+# Build and run the interactive net.c test harness
+net_debug: CFLAGS = $(CFLAGS_DEBUG)
+net_debug:
+	@mkdir -p $(BINDIR)
+	$(CC) $(CFLAGS) -Iinclude $(SRCDIR)/net_test.c $(SRCDIR)/net.c -o $(BINDIR)/net_test
+	./$(BINDIR)/net_test
 
 release: CFLAGS = $(CFLAGS_RELEASE)
 release: $(TARGET)

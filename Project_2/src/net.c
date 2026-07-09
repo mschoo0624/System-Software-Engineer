@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <string.h>
+#include <errno.h>
 
 #include <sys/types.h>    /* older systems need this for some types */
 #include <sys/socket.h>   /* socket(), AF_INET, SOCK_DGRAM, SOL_SOCKET */
@@ -22,6 +23,12 @@
 /* ===== Socket Management ===== */
 int setup_listen_socket(const char *addr, int port) {
     /* TODO: create UDP socket, set SO_REUSEADDR, bind to addr:port, return fd or -1 on error */
+    // Setting up the edge case. 
+    if (addr == NULL || port <= 0 || port > 65535) {
+        log_warn("setup_listen_socket: invalid args\n");
+        return -1;
+    }
+
     int opt = 1;
     struct sockaddr_in server_addr;
     // Creating the UDP socket (SOCK_DGRAM/SOCK_STREAM).
@@ -206,6 +213,7 @@ int tcp_query_fallback(const char *upstream_addr, int upstream_port,
     if (inet_pton(AF_INET, upstream_addr, &upstream_addr_struct.sin_addr) <= 0) {
         perror("inet_pton error: ");
         close(fd);
+        return -1;
     }
     // connecting to the upstream server.
     if (connect(fd, (struct sockaddr *)&upstream_addr_struct, sizeof(upstream_addr_struct)) < 0) {
@@ -217,7 +225,8 @@ int tcp_query_fallback(const char *upstream_addr, int upstream_port,
     uint16_t query_len_net = htons((uint16_t)query_len);
     if (send(fd, &query_len_net, sizeof(query_len_net), 0) < 0) {
         perror("send length");
-        close(fd);  
+        close(fd);
+        return -1;
     }
     if (send(fd, query, query_len, 0) < 0) {
         perror("send query");
@@ -225,21 +234,25 @@ int tcp_query_fallback(const char *upstream_addr, int upstream_port,
         return -1;
     }
     // Reading the length-prefixed response from the upstream server.
-    uint16_t response_len_net;
-    if (recv(fd, &response_len_net, sizeof(response_len_net), 0) < 0) {
+    uint16_t response_len_net = 0;
+    ssize_t header_bytes = recv(fd, &response_len_net, sizeof(response_len_net), 0);
+    if (header_bytes <= 0) {
         perror("recv length");
         close(fd);
+        return -1;
     }
     uint16_t response_len_host = ntohs(response_len_net);
     if (response_len_host > response_len) {
-        log_warn("Response too large for buffer");
+        log_warn("Response too large for buffer\n");
         close(fd);
-    }  
-    if (recv(fd, response, response_len_host, 0) < 0) {
+        return -1;
+    }
+    ssize_t body_bytes = recv(fd, response, response_len_host, 0);
+    if (body_bytes < 0) {
         perror("recv response");
         close(fd);
         return -1;
     }
     close(fd);
-    return response_len_host;
+    return (int)body_bytes;
 }

@@ -9,6 +9,9 @@ from cache when possible.
 The implementation follows **RFC 1035** and focuses on low-level networking,
 binary protocol parsing, and performance optimization.
 
+
+## Description
+I built a lightweight DNS resolver prototype in C that uses BSD sockets to receive UDP queries, forward them to upstream servers, and send responses back to clients. The project demonstrates systems programming skills such as socket programming, protocol handling, timeouts, retries, and low-level memory/buffer management.
 ---
 
 ## Features
