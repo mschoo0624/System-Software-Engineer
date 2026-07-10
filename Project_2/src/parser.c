@@ -223,3 +223,68 @@ u32 parse_resource_record(const uint8_t *buf, size_t buf_len, size_t *offset,
     *offset = rdata_start + rdlength;
     return 0;
 }
+
+/* ===== DNS Response Building Skeleton ===== */
+/*
+ * TODO: fill in the full logic for building a DNS response from a parsed query.
+ * Suggested structure:
+ *  1. Parse the incoming query header.
+ *  2. Parse the question section.
+ *  3. Validate the request and choose the appropriate answer type.
+ *  4. Build a response header with the original transaction ID.
+ *  5. Copy the original question into the answer section.
+ *  6. Append one or more resource records as needed.
+ *  7. Set the final response length and return success.
+ *
+ * Additional responsibilities to implement later:
+ *  - translate questions into answers (A, AAAA, CNAME, etc.)
+ *  - support additional QTYPEs beyond A and CNAME
+ *  - handle DNS header flags and response codes (QR, RA, RCODE, etc.)
+ *  - connect parser output to the networking layer in net.c
+ *  - integrate a cache layer so repeated queries can be served quickly
+ *  - add safety checks and cleanup for duplicated RDATA memory
+ *  - implement end-to-end query handling in main server code
+ */
+u32 build_dns_response(const uint8_t *query, size_t query_len,
+                       uint8_t *response, size_t response_buf_len,
+                       size_t *response_len) {
+    struct dns_header header;
+    struct dns_question question;
+    struct dns_question questions[1]; 
+    size_t pos = 0;
+    size_t offset = DNS_HEADER_SIZE;  /* start writing after header */
+    (void)query;
+    (void)query_len;
+    (void)response;
+    (void)response_buf_len;
+    (void)response_len;
+    (void)header;
+    (void)question;
+    (void)pos;
+
+    /* TODO: parse the DNS header from query */
+    if (parse_dns_header(query, query_len, &header) < 0) {
+        return -1;
+    }
+    /* TODO: parse the question section from query */
+    if (parse_question_section(query, query_len, &offset, header.qdcount, questions) < 0) {
+        return -1;
+    }
+    /* TODO: validate the parsed data and check buffer limits */
+    if (header.qdcount != 1){
+        return -1;
+    }
+    /* TODO: build the DNS response header */
+    
+    /* TODO: write the original question back into the response */
+    /* TODO: append answer records based on QTYPE (A, CNAME, etc.) */
+    /* TODO: support additional QTYPEs beyond A and CNAME */
+    /* TODO: set DNS header flags and response codes (QR, RA, RCODE, etc.) */
+    /* TODO: connect parser output to the networking layer in net.c */
+    /* TODO: integrate cache lookup / cache write logic */
+    /* TODO: add cleanup for duplicated RDATA memory */
+    /* TODO: implement end-to-end query handling in main server code */
+    /* TODO: set *response_len to the number of bytes written */
+
+    return -1;
+}

@@ -22,7 +22,6 @@
 
 /* ===== Socket Management ===== */
 int setup_listen_socket(const char *addr, int port) {
-    /* TODO: create UDP socket, set SO_REUSEADDR, bind to addr:port, return fd or -1 on error */
     // Setting up the edge case. 
     if (addr == NULL || port <= 0 || port > 65535) {
         log_warn("setup_listen_socket: invalid args\n");
@@ -33,12 +32,13 @@ int setup_listen_socket(const char *addr, int port) {
     struct sockaddr_in server_addr;
     // Creating the UDP socket (SOCK_DGRAM/SOCK_STREAM).
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
-    
+
     // Error handling.
     if (fd < 0) {
         perror("Error: ");
         return -1;
     }
+    
     fprintf(stderr, "Socket fd: %d\n", fd); // the fd table should be starting from 3. since 0, 1 and 2 are reserved.
 
     // Setting up the SO_REUSEADDR option. since opt is 1, it allows rebinding to the same port quickely. 

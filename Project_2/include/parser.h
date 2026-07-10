@@ -14,6 +14,16 @@ u32 read_u8(const uint8_t *buf, size_t len, size_t *offset, uint8_t *out);
 u32 read_u16(const uint8_t *buf, size_t len, size_t *offset, uint16_t *out);
 u32 read_u32(const uint8_t *buf, size_t len, size_t *offset, uint32_t *out);
 
+/* Buffer write helpers for building DNS responses */
+u32 write_u8(uint8_t *buf, size_t len, size_t *offset, uint8_t value);
+u32 write_u16(uint8_t *buf, size_t len, size_t *offset, uint16_t value);
+u32 write_u32(uint8_t *buf, size_t len, size_t *offset, uint32_t value);
+u32 write_name(const char *name, uint8_t *buf, size_t len, size_t *offset);
+u32 write_question(uint8_t *buf, size_t len, size_t *offset,
+                   const struct dns_question *question);
+u32 write_a_record(uint8_t *buf, size_t len, size_t *offset,
+                   const char *name, const uint8_t *ip_bytes, uint32_t ttl);
+
 /* Parse DNS header from buffer */
 u32 parse_dns_header(const uint8_t *buf, size_t len, struct dns_header *hdr);
 
